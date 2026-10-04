@@ -362,14 +362,15 @@ def render_page(n, figrel, label, docrel="."):
     FULL["on"] = label == "full"
     title = "HPCC reproduction results"
     scope = ("the paper's 320-host FatTree (full set, <code>make repro</code>)" if label == "full"
-             else "a scaled-down 32-host FatTree with short windows (<code>make quick</code>); the full-scale results are in docs/results.html")
+             else "a scaled-down 32-host FatTree with shorter windows (<code>make quick</code>); the full-scale results "
+                  f'are in <a href="{esc(docrel)}/results.html">docs/results.html</a>')
     body = [f"<h1>{title}</h1>",
             f'<p class="sub">Independent re-implementation and simulation study of Li et al., "HPCC: High Precision '
             f'Congestion Control", SIGCOMM 2019. This page was generated from {scope}. Discussion: '
             f'<a href="{esc(docrel)}/report.md">report.md</a>; model and choices: <a href="{esc(docrel)}/DESIGN.md">DESIGN.md</a>.</p>',
             '<p>Contents: <a href="#fig11">Figure 11</a> &middot; <a href="#fig10">Figure 10</a> &middot; '
-            '<a href="#fig13">Figure 13</a> &middot; <a href="#fig14">Figure 14</a> &middot; <a href="#fig9">Figure 9</a> '
-            '&middot; <a href="#extras">seeds and sensitivity</a></p>']
+            '<a href="#fig13">Figure 13</a> &middot; <a href="#fig14">Figure 14</a> &middot; <a href="#fig9">Figure 9</a>'
+            + (' &middot; <a href="#extras">seeds and sensitivity</a>' if n.get("extras") else "") + "</p>"]
     body.append(section_fig11(n, figrel, label))
     body.append(section_fig10(n, figrel))
     body.append(section_fig13(n, figrel))

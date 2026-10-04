@@ -1104,7 +1104,7 @@
     "pause_frames": 13175,
     "rtt_p95_us": 1358.954496,
     "rtt_p99_us": 2097.152,
-    "wall_seconds": 76.375400542
+    "wall_seconds": 53.802970375
    },
    "dcqcn+win": {
     "bins": [
@@ -1201,7 +1201,7 @@
     "pause_frames": 0,
     "rtt_p95_us": 54.263808,
     "rtt_p99_us": 352.321536,
-    "wall_seconds": 33.30364175
+    "wall_seconds": 24.396786875
    },
    "dctcp": {
     "bins": [
@@ -1298,7 +1298,7 @@
     "pause_frames": 0,
     "rtt_p95_us": 36.962304,
     "rtt_p99_us": 488.636416,
-    "wall_seconds": 31.7887105
+    "wall_seconds": 22.934127333
    },
    "hpcc": {
     "bins": [
@@ -1395,7 +1395,7 @@
     "pause_frames": 0,
     "rtt_p95_us": 21.102592,
     "rtt_p99_us": 434.110464,
-    "wall_seconds": 46.987688125
+    "wall_seconds": 32.50276725
    },
    "timely": {
     "bins": [
@@ -1492,7 +1492,7 @@
     "pause_frames": 23350,
     "rtt_p95_us": 1644.167168,
     "rtt_p99_us": 2533.359616,
-    "wall_seconds": 66.810332
+    "wall_seconds": 46.008365791
    },
    "timely+win": {
     "bins": [
@@ -1589,7 +1589,7 @@
     "pause_frames": 0,
     "rtt_p95_us": 59.768832,
     "rtt_p99_us": 834.666496,
-    "wall_seconds": 31.277172208
+    "wall_seconds": 20.623075541
    }
   },
   "fb50": {
@@ -1688,7 +1688,7 @@
     "pause_frames": 0,
     "rtt_p95_us": 84.410368,
     "rtt_p99_us": 127.926272,
-    "wall_seconds": 115.809685125
+    "wall_seconds": 91.388698417
    },
    "dcqcn+win": {
     "bins": [
@@ -1785,7 +1785,7 @@
     "pause_frames": 0,
     "rtt_p95_us": 45.350912,
     "rtt_p99_us": 56.623104,
-    "wall_seconds": 59.71195175
+    "wall_seconds": 46.501887834
    },
    "dctcp": {
     "bins": [
@@ -1882,7 +1882,7 @@
     "pause_frames": 0,
     "rtt_p95_us": 36.70016,
     "rtt_p99_us": 45.8752,
-    "wall_seconds": 54.811422583
+    "wall_seconds": 44.785922042
    },
    "hpcc": {
     "bins": [
@@ -1979,7 +1979,7 @@
     "pause_frames": 0,
     "rtt_p95_us": 19.791872,
     "rtt_p99_us": 26.083328,
-    "wall_seconds": 129.035192458
+    "wall_seconds": 103.708795875
    },
    "timely": {
     "bins": [
@@ -2076,7 +2076,7 @@
     "pause_frames": 113,
     "rtt_p95_us": 108.003328,
     "rtt_p99_us": 199.22944,
-    "wall_seconds": 100.472656917
+    "wall_seconds": 77.698642125
    },
    "timely+win": {
     "bins": [
@@ -2173,7 +2173,7 @@
     "pause_frames": 0,
     "rtt_p95_us": 45.8752,
     "rtt_p99_us": 61.341696,
-    "wall_seconds": 66.157871541
+    "wall_seconds": 56.416883916
    }
   }
  },

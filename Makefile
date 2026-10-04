@@ -24,7 +24,7 @@ $(VENV)/.ok: requirements.txt
 	$(VPY) -m pip install -q -r requirements.txt
 	touch $(VENV)/.ok
 
-# Scaled-down experiment set (32-host FatTree, short windows): about a minute.
+# Scaled-down experiment set (32-host FatTree, shorter windows): about 15 s.
 quick: build $(VENV)/.ok
 	$(PY) analysis/run_experiments.py --set quick --jobs $(JOBS)
 	$(VPY) analysis/figures.py --results results/quick --figures results/quick/figures \

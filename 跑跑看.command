@@ -68,5 +68,5 @@ echo "== 3/3 打開結果網頁"
 open "results/quick/index.html"
 echo "已用瀏覽器打開 results/quick/index.html。"
 echo "（這是縮小版的結果。論文規模 320 台主機的完整結果在 docs/results.html，"
-echo "  要重跑完整版請在終端機執行 make repro，大約需要半小時。）"
+echo "  要重跑完整版請在終端機執行 make repro，大約需要 7 分鐘。）"
 pause_and_exit 0

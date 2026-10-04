@@ -77,8 +77,9 @@ table of modelling choices in [DESIGN.md](DESIGN.md)):
 
 ### 2.3 Cost
 
-The full set (39 runs) takes 8.1 minutes of wall time with 4 parallel jobs (`make repro`); a single full-scale
-FatTree run takes 30-160 s at about 13 million events per second.
+The full set (39 runs plus figures) takes 6.5 minutes of wall time with 4 parallel jobs (`make repro`); a single
+full-scale FatTree run takes 20-130 s at about 13 million events per second. A second complete run reproduced every
+number and every figure bit for bit.
 
 ## 3. Results, figure by figure
 
@@ -241,11 +242,14 @@ ideal FCT:
 | DCQCN, all flows | 1.13 / 1.66 | 7.34 / 10.74 | 14.45 / 20.14 |
 | DCQCN, smallest-size bin | 1.03 / 1.24 | 8.69 / 14.74 | 20.80 / 27.85 |
 
-**HPCC agrees** (medians within 1-7% and tails within about 15% in every bin), which is the strongest evidence here
-that the network model and the HPCC implementation are right: two independent code bases, same answer.
+**HPCC agrees**: per size bin the medians are within 3%, the 95th percentiles are 3-23% lower here (in every bin,
+so there is a small systematic difference in the tail) and the 99th percentiles are within -26% to +7%. This is the
+strongest evidence here that the network model and the HPCC implementation are right: two independent code bases,
+nearly the same answer.
 
-**DCQCN does not fully agree.** In the authors' simulator DCQCN keeps more standing queue: short flows have a
-median slowdown of 1.15-1.36 instead of 1.03 and 1.3-1.8x higher tails; the largest flows agree. Neither run had
+**DCQCN does not fully agree.** In the authors' simulator DCQCN keeps more standing queue: flows up to 160 KB have
+median slowdowns of 1.15-1.97 instead of 1.02-1.62 and 1.2-1.9x higher 95th percentiles; only the largest flows
+agree. Neither run had
 PFC pauses. The difference was not tracked down within the time box. Candidates, none verified: how their NIC model
 re-paces a flow after a rate change (their DCQCN timers assign the rate without re-scheduling the pending send),
 the egress scheduling of the control class in their switch model (which affects how fast CNP-carrying ACKs return),
@@ -264,7 +268,8 @@ for DCQCN, so the HPCC-versus-DCQCN conclusions are conservative.
 * Byte conservation: injected = delivered + dropped + in flight, checked at many points of 12 random runs across
   topologies, CCs and PFC on/off.
 * ECMP: deterministic, spreads 40 000 flows evenly over 4 uplinks, uses all 5-tuple fields.
-* Analytic CC checks: lone long flows reach line rate (HPCC: exactly the eta and INT overhead predicted); four flows
+* Analytic CC checks: lone long flows reach line rate (HPCC: within a few percent of the
+  rate predicted from eta and the INT overhead); four flows
   converge to a fair share for every algorithm; DCTCP holds its queue near K.
 * Determinism: identical output for identical seeds; golden digests pinned across platforms.
 * Mutation check: deliberate one-line bugs (HPCC reading the queue length of the wrong hop, PFC off by one byte, ECN

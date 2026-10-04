@@ -25,9 +25,9 @@ The full experiment set simulates a 320-host, 56-switch network at 100/400 Gbps 
 several billion events. The choice was between C++, Rust and Go:
 
 * **Speed.** A single-threaded Rust build processes about 13 million events per second on this machine (Apple M5),
-  so one full-scale run of the paper's FatTree takes 30 s to 2.5 min and the whole `make repro` set fits in about
-  10 minutes on 4 cores. C++ would be as fast; Go's garbage collector and bounds checks would cost roughly 1.5-2x
-  and Python would be two orders of magnitude slower.
+  so one full-scale run of the paper's FatTree takes 20 s to just over 2 min and the whole `make repro` set takes about
+  6.5 minutes on 4 cores. C++ would be about as fast; Go was expected to be somewhat slower (garbage collector,
+  less aggressive optimiser) and Python far slower. These alternatives were not benchmarked.
 * **Correctness.** Packets move between queues, wires and the receiver many millions of times. In Rust a packet
   is a `u32` index into a slab that is owned by exactly one place at a time; the pool asserts on double free and on
   use-after-free in debug builds, and the byte-conservation test checks that nothing is ever leaked. There is no
