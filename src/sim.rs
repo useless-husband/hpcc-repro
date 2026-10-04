@@ -213,6 +213,10 @@ pub struct Flow {
 }
 
 impl Flow {
+    pub fn is_measured(&self) -> bool {
+        self.measured
+    }
+
     pub fn cc_state(&self) -> Option<&CcState> {
         self.cc.as_deref()
     }
@@ -1011,6 +1015,11 @@ impl Sim {
 
     pub fn n_hosts(&self) -> u32 {
         self.n_hosts
+    }
+
+    /// (measured flows, measured flows still unfinished).
+    pub fn measured_counts(&self) -> (usize, usize) {
+        (self.flows.iter().filter(|f| f.measured).count(), self.measured_left)
     }
 
     pub fn live_packets(&self) -> usize {

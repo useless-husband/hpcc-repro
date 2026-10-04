@@ -242,6 +242,8 @@ pub fn write_outputs(sim: &Sim, dir: &Path, meta: &[(&str, String)], wall_second
         ("flows_total", sim.flows.len() as f64),
         ("flows_started", sim.flows.iter().filter(|f| f.started).count() as f64),
         ("flows_finished", measured as f64),
+        ("measured_flows", sim.measured_counts().0 as f64),
+        ("measured_unfinished", sim.measured_counts().1 as f64),
         ("n_hosts", sim.n_hosts() as f64),
         ("n_switch_ports", sim.n_switch_ports() as f64),
         ("data_bytes_injected", c.data_bytes_injected as f64),
@@ -295,6 +297,18 @@ pub fn write_outputs(sim: &Sim, dir: &Path, meta: &[(&str, String)], wall_second
         }
     }
 
+    // Flows that started but had not finished when the run stopped.
+    let unfinished: Vec<_> = sim.flows.iter().enumerate().filter(|(_, f)| f.started && !f.finished).collect();
+    if !unfinished.is_empty() {
+        let mut w = std::io::BufWriter::new(std::fs::File::create(dir.join("unfinished.csv"))?);
+        writeln!(w, "flow,src,dst,size,start_ps,acked,rate_bps,win,measured,cc_state")?;
+        for (i, f) in unfinished {
+            let st = f.cc_state().map(|c| format!("{c:?}").replace(',', ";")).unwrap_or_default();
+            let st: String = st.chars().take(300).collect();
+            writeln!(w, "{i},{},{},{},{},{},{},{},{},{}", f.spec.src, f.spec.dst, f.spec.size, f.spec.start, f.snd_una, f.ctl.rate_bps, f.ctl.win, f.is_measured(), st)?;
+        }
+        w.flush()?;
+    }
     let micro: Vec<_> = sim.flows.iter().enumerate().filter(|(_, f)| f.spec.tag == FlowTag::Micro).collect();
     if !micro.is_empty() {
         // Delivered payload bytes per flow per trace bin.
