@@ -19,6 +19,7 @@ import matplotlib
 
 matplotlib.use("svg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.ticker import FuncFormatter, NullFormatter  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from page import render_page  # noqa: E402
@@ -63,6 +64,7 @@ plt.rcParams.update({
     "axes.titleweight": "bold",
     "axes.titlelocation": "left",
     "axes.grid": True,
+    "axes.axisbelow": True,
     "grid.color": GRID,
     "grid.linewidth": 0.6,
     "axes.spines.top": False,
@@ -175,7 +177,16 @@ def fmt_size(b):
     return str(b)
 
 
+def plain_log_y(ax):
+    """Log y-axis labelled 1, 2, 5, 10, ... instead of 10^0 notation."""
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    ax.yaxis.set_minor_formatter(FuncFormatter(lambda v, _: f"{v:g}" if str(f"{v:g}")[0] in "25" else ""))
+
+
 def save(fig, path):
+    for ax in fig.axes:
+        if ax.get_yscale() == "log":
+            plain_log_y(ax)
     fig.savefig(path, format="svg", bbox_inches="tight", metadata={"Date": None})
     png_dir = os.environ.get("FIG_PNG_DIR")  # optional raster copies for review
     if png_dir:
@@ -247,7 +258,7 @@ def fig11(root, figdir, nums):
         ax.bar(xs, pause, color=[COLOR[c] for c in ccs], width=0.7, edgecolor="#fcfcfb", linewidth=2)
         for x, v in zip(xs, pause):
             ax.text(x, v, f"{v:.2f}", ha="center", va="bottom", fontsize=7.5, color=INK)
-        ax.set_title(title.replace("(a)", "(a)").replace("(b)", "(b)") + ": PFC pause")
+        ax.set_title(("(a) 30% load + incast" if case == "fb30inc" else "(b) 50% load") + ": time paused by PFC")
         ax.set_ylabel("time paused (% of port-time)")
         ax.set_xticks(list(xs))
         ax.set_xticklabels([LABEL[c] for c in ccs], fontsize=7.5, rotation=20)
@@ -258,7 +269,7 @@ def fig11(root, figdir, nums):
             ax.text(x, v, f"{v:.0f}", ha="center", va="bottom", fontsize=7.5, color=INK)
         ax.set_yscale("log")
         ax.set_ylim(5, max(lat) * 3)
-        ax.set_title("95th-percentile packet RTT")
+        ax.set_title(("(c)" if case == "fb30inc" else "(d)") + " 95th-percentile packet RTT")
         ax.set_ylabel("RTT (us, log scale)")
         ax.set_xticks(list(xs))
         ax.set_xticklabels([LABEL[c] for c in ccs], fontsize=7.5, rotation=20)
@@ -327,7 +338,8 @@ def fig10(root, figdir, nums):
         axq.set_ylabel("CDF of samples (%) - top 20% shown")
         axq.set_title(f"({'c' if col == 0 else 'd'}) queue length, {pct}% load")
         axq.legend(loc="lower right", fontsize=8)
-    axes[0][-1].legend(fontsize=6.5, ncol=1, loc="upper left")
+    handles, labels_ = axes[0][0].get_legend_handles_labels()
+    fig.legend(handles, labels_, loc="upper left", bbox_to_anchor=(0.06, 0.0), ncol=3, fontsize=7.5)
     fig.tight_layout()
     save(fig, os.path.join(figdir, "fig10_websearch.svg"))
     return True
@@ -475,13 +487,20 @@ def fig9(root, figdir, nums):
                 short_end = (int(ends[0]["start_ps"]) + int(ends[0]["fct_ps"])) / 1e9 if ends else None
                 pre = sum(long[int(0.5e-3 / bin_s):int(0.9e-3 / bin_s)]) / max(1, int(0.4e-3 / bin_s))
                 rec = None
+                after = None
                 if short_end:
-                    for i, tt in enumerate(t):
-                        if tt > short_end and long[i] >= 0.95 * pre:
-                            rec = (tt - short_end) * 1000
+                    k0 = next(i for i, tt in enumerate(t) if tt > short_end)
+                    # First bin from which the long flow stays >= 95% of its
+                    # pre-join rate for 5 consecutive bins (100 us); a single
+                    # spike while the queue drains does not count.
+                    for i in range(k0, len(t) - 5):
+                        if all(long[j] >= 0.95 * pre for j in range(i, i + 5)):
+                            rec = (t[i] - short_end) * 1000
                             break
+                    w = long[k0:k0 + int(1e-3 / bin_s)]
+                    after = sum(w) / len(w) / pre if w else None
                 info.update({"short_flow_end_ms": short_end, "long_rate_before_gbps": pre,
-                             "recovery_us_to_95pct": rec})
+                             "recovery_us_to_95pct": rec, "long_rate_next_1ms_frac": after})
             nums["fig9"][kind][cc] = info
         axes[0][0].legend(loc="lower left", fontsize=7.5)
         fig.tight_layout()

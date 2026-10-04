@@ -290,6 +290,20 @@ mod tests {
     }
 
     #[test]
+    fn ewma_weight_is_capped_at_one_rtt() {
+        // Algorithm 1 line 8: after a gap longer than T the new sample fully
+        // replaces U (weight tau/T capped at 1), it never over-shoots.
+        let (mut h, mut ctl) = Hpcc::new(HpccParams::default(), &env());
+        h.on_ack(&ack(&[hop(0, 0, 0)], 1000, 10_000), &mut ctl);
+        // 3 T later; the link carried 50% of line rate, no queue.
+        let u = h.measure_inflight(&[hop(39_000, 3 * 162_500 / 2, 0)]);
+        assert!(
+            (u - 0.5).abs() < 1e-9,
+            "U = {u}, expected exactly the new sample 0.5"
+        );
+    }
+
+    #[test]
     fn same_rtt_acks_do_not_compound() {
         // Figure 5: two ACKs describing the same queue must not cut twice.
         let (mut h, mut ctl) = Hpcc::new(HpccParams::default(), &env());

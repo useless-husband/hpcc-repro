@@ -218,6 +218,28 @@ mod tests {
     }
 
     #[test]
+    fn alpha_rises_while_cnps_keep_arriving() {
+        // alpha <- (1 - g) alpha + g for every alpha period that saw a CNP.
+        let (mut d, mut ctl) = Dcqcn::new(DcqcnParams::vendor(gbps(100), false), &env());
+        d.on_ack(&cnp(), &mut ctl, &mut TimerReqs::default());
+        d.alpha = 0.5;
+        for _ in 0..10 {
+            d.on_ack(&cnp(), &mut ctl, &mut TimerReqs::default());
+            d.on_timer(TIMER_ALPHA, 0, &mut ctl, &mut TimerReqs::default());
+        }
+        let g = 1.0 / 256.0;
+        let mut expect = 0.5;
+        for _ in 0..10 {
+            expect = (1.0 - g) * expect + g;
+        }
+        assert!(
+            (d.alpha - expect).abs() < 1e-12,
+            "alpha {} expected {expect}",
+            d.alpha
+        );
+    }
+
+    #[test]
     fn no_cnp_no_decrease_and_alpha_decays() {
         let (mut d, mut ctl) = Dcqcn::new(DcqcnParams::vendor(gbps(100), false), &env());
         d.on_ack(&cnp(), &mut ctl, &mut TimerReqs::default());

@@ -309,10 +309,12 @@ def section_fig9(n, figrel):
         out.append(compare(
             "HPCC recovers the long flow's rate right after the short flow ends; DCQCN cannot recover to line rate "
             "even after 2 ms.",
-            f"After the short flow ends the long flow is back at 95% of its earlier rate within "
+            f"After the short flow ends, the long flow is back at 95% of its earlier rate (sustained for 100 us) after "
             f"{f(h.get('recovery_us_to_95pct'), 0)} us with HPCC; with DCQCN "
             + ("it has not recovered by the end of the 3 ms run" if d.get("recovery_us_to_95pct") is None
-               else f"after {f(d.get('recovery_us_to_95pct'), 0)} us") + f". Peak buffer: HPCC {h.get('peak_buffer_kb', 0):.1f} KB, "
+               else f"after {f(d.get('recovery_us_to_95pct'), 0)} us")
+            + f", and over the first millisecond it averages {100 * (d.get('long_rate_next_1ms_frac') or 0):.0f}% of its earlier rate "
+            f"(HPCC: {100 * (h.get('long_rate_next_1ms_frac') or 0):.0f}%). Peak buffer: HPCC {h.get('peak_buffer_kb', 0):.1f} KB, "
             f"DCQCN {d.get('peak_buffer_kb', 0):.0f} KB.",
             "Fast recovery with HPCC, slow (300 us timer driven) recovery with DCQCN.",
             "-", "-", "matches"))

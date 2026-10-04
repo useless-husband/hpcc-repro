@@ -9,7 +9,8 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   hpcc-sim fct    --cc NAME --workload fbhadoop|websearch --load 0.3 [--incast]
                   [--small] [--warmup-ms 1] [--measure-ms 5] [--tail-ms 15]
-                  [--seed 1] [--wai BYTES] [--max-stage N] [--no-pfc] --out DIR
+                  [--seed 1] [--wai BYTES] [--max-stage N] [--no-pfc]
+                  [--export-ns3 DIR] --out DIR
   hpcc-sim incast --n 16 --cc NAME [--wai BYTES] [--duration-us 400] [--bin-ns 1000]
                   [--queue-sample-ns NS] --out DIR
   hpcc-sim micro  --kind longshort|incast|mice|fairshare --cc NAME --out DIR
@@ -72,6 +73,50 @@ fn main() -> ExitCode {
     }
 }
 
+fn export_ns3(cfg: &hpcc_sim::sim::SimConfig, dir: &std::path::Path) -> std::io::Result<()> {
+    use std::fmt::Write as _;
+    std::fs::create_dir_all(dir)?;
+    let t = &cfg.topo;
+    let mut s = format!("{} {} {}\n", t.n_nodes(), t.n_switches, t.links.len());
+    s += &(t.n_hosts..t.n_nodes())
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    s.push('\n');
+    for l in &t.links {
+        let _ = writeln!(
+            s,
+            "{} {} {}Gbps {}ns 0",
+            l.a,
+            l.b,
+            l.rate_bps / 1_000_000_000,
+            l.delay / 1000
+        );
+    }
+    std::fs::write(dir.join("topology.txt"), s)?;
+    // Flows sorted by start; ns-3 time starts at 2 s like the authors' generator.
+    let mut flows = cfg.flows.clone();
+    flows.sort_by_key(|f| f.start);
+    let mut s = format!("{}\n", flows.len());
+    for f in &flows {
+        let dport = if f.tag == hpcc_sim::workload::FlowTag::Incast {
+            200
+        } else {
+            100
+        };
+        let _ = writeln!(
+            s,
+            "{} {} 3 {} {} {:.12}",
+            f.src,
+            f.dst,
+            dport,
+            f.size,
+            2.0 + f.start as f64 * 1e-12
+        );
+    }
+    std::fs::write(dir.join("flows.txt"), s)
+}
+
 fn real_main(cmd: &str, mut a: Args) -> Result<(), String> {
     let (cfg, meta, out) = match cmd {
         "fct" => {
@@ -95,6 +140,13 @@ fn real_main(cmd: &str, mut a: Args) -> Result<(), String> {
                 .val("--max-stage")?
                 .map(|v| v.parse().map_err(|_| "bad --max-stage".to_string()))
                 .transpose()?;
+            if let Some(d) = a.val("--export-ns3")? {
+                // Write the same topology and flows in the input format of the
+                // authors' ns-3 simulator, for cross-checking.
+                let cfg = e.config()?;
+                export_ns3(&cfg, std::path::Path::new(&d))
+                    .map_err(|err| format!("export: {err}"))?;
+            }
             let out = PathBuf::from(a.req("--out")?);
             (e.config()?, e.describe(), out)
         }
