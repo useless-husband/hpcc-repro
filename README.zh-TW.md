@@ -108,7 +108,7 @@ experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true
 ### 執行時間
 
 `make repro` 跑 41 次模擬（圖 10、11 用論文的 320 台主機 FatTree）並畫圖，在 Apple M5（10 核心，量測時有其他
-工作同時在跑）上用 4 個平行工作花 **7.7 分鐘**。結果每次執行逐位元相同，arm64 和 x86-64 版本（用 Rosetta 2
+工作同時在跑）上用 4 個平行工作花 **約 7.8 分鐘**。結果每次執行逐位元相同，arm64 和 x86-64 版本（用 Rosetta 2
 執行）的輸出也完全相同。單次完整規模模擬 20-150 秒；模擬器單核心每秒處理約 1300 萬個事件
 （`make bench`），每次完整規模模擬約用 130 MB 記憶體。`make quick`（32 台主機、較短的時間窗）約 15 秒。
 

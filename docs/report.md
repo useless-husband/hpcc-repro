@@ -78,7 +78,7 @@ table of modelling choices in [DESIGN.md](DESIGN.md)):
 
 ### 2.3 Cost
 
-The full set (41 runs plus figures) takes 7.7 minutes of wall time with 4 parallel jobs (`make repro`); a single
+The full set (41 runs plus figures) takes about 7.8 minutes of wall time with 4 parallel jobs (`make repro`); a single
 full-scale FatTree run takes 20-150 s at about 13 million events per second. Two complete runs of the same code
 produce bit-identical numbers and figures, and outputs are byte-identical between arm64 and x86-64 builds.
 

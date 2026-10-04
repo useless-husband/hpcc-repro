@@ -117,7 +117,7 @@ and every qualitative conclusion holds under both. Details: [docs/DESIGN.md](doc
 ### Runtime
 
 `make repro` runs 41 simulations (the paper's 320-host FatTree for Figures 10 and 11) and draws the figures in
-**7.7 minutes** of wall time with 4 parallel jobs on an Apple M5 (10 cores, shared with other jobs while measured).
+**about 7.8 minutes** of wall time with 4 parallel jobs on an Apple M5 (10 cores, shared with other jobs while measured).
 Results are bit-identical between runs and between arm64 and x86-64 builds (checked under Rosetta 2). One full-scale run takes
 20-150 s; the simulator processes about 13 million events per second on one core (`make bench`), with about 130 MB
 of memory per full-scale run. `make quick` (32-host tree, shorter windows) takes about 15 s.
