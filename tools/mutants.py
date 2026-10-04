@@ -81,6 +81,26 @@ MUTANTS = [
      "let end = start + ser_time(ack as u64, rate);",
      "let end = start;",
      "ideal FCT forgets to serialize the ACK on the way back"),
+    ("acks_never_share_data_queue", "src/sim.rs",
+     "Kind::Ack | Kind::Nack if self.cfg.ack_class == AckClass::Control => {",
+     "Kind::Ack | Kind::Nack if true => {",
+     "switches always prioritise ACKs, ignoring the configured ACK class"),
+    ("duplicates_not_reacked", "src/sim.rs",
+     """            // Duplicate (a go-back-N retransmission of data already
+            // received): re-acknowledge, otherwise a lost final ACK would make
+            // the sender retransmit forever.
+            Some(Kind::Ack)""",
+     """            None""",
+     "receiver ignores duplicate data instead of re-acknowledging it"),
+    ("late_ack_leaves_snd_nxt_behind", "src/sim.rs",
+     """            if f.snd_nxt < f.snd_una {
+                f.snd_nxt = f.snd_una;
+            }
+        }
+        let view""",
+     """        }
+        let view""",
+     "a late ACK after a go-back-N rewind leaves snd_nxt behind snd_una"),
     ("int_qlen_before_dequeue", "src/sim.rs",
      "qlen: port.data_bytes + port.ctrl_bytes,",
      "qlen: 0,",
@@ -99,8 +119,12 @@ def copy_repo(dst):
 
 def run_tests(work, target):
     env = dict(os.environ, CARGO_TARGET_DIR=target)
-    p = subprocess.run(["cargo", "test", "--release", "-j", "4", "--no-fail-fast"], cwd=work, env=env,
-                       capture_output=True, text=True)
+    try:
+        p = subprocess.run(["cargo", "test", "--release", "-j", "4", "--no-fail-fast"], cwd=work, env=env,
+                           capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        # A mutant that makes the suite hang is detected, but say so.
+        return 1, ["(suite timed out after 900 s)"], False
     out = p.stdout + p.stderr
     failed = sorted(set(re.findall(r"^test (\S+) \.\.\. FAILED", out, re.M)))
     compile_error = "error[E" in out or "error: could not compile" in out

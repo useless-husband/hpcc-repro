@@ -67,6 +67,34 @@ impl EcnProfile {
     }
 }
 
+/// Which switch queue acknowledgements use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AckClass {
+    /// A strict-priority control class at every hop: never queued behind
+    /// data, never counted in the shared buffer, never paused.
+    Control,
+    /// The same queue as data at every switch (buffer accounting, PFC,
+    /// FIFO behind data), which is what the authors' ns-3 simulator does for
+    /// every algorithm: its `ACK_HIGH_PRIO` setting only reaches the host
+    /// NICs (`scratch/third.cc` sets `RdmaEgressQueue::ack_q_idx`), while the
+    /// switches' `AckHighPrio` attribute keeps its default 0. Host NICs still
+    /// send ACKs before data; `pausable_at_host` says whether a PFC pause of
+    /// the data class also stops them (the case when `ACK_HIGH_PRIO` is 0).
+    SharedWithData { pausable_at_host: bool },
+}
+
+impl AckClass {
+    /// The effective behaviour of the authors' simulator with the
+    /// `ACK_HIGH_PRIO` value their `run.py` uses for each algorithm
+    /// (1 for DCQCN and TIMELY, 0 otherwise).
+    pub fn authors_simulator(cc: &CcKind) -> AckClass {
+        let high_prio_at_host = matches!(cc, CcKind::Dcqcn(_) | CcKind::Timely(_));
+        AckClass::SharedWithData {
+            pausable_at_host: !high_prio_at_host,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SimConfig {
     pub topo: Topology,
@@ -85,6 +113,8 @@ pub struct SimConfig {
     pub buffer_bytes: u64,
     pub pfc: bool,
     pub ecn: EcnProfile,
+    /// Where ACKs and NACKs are queued in switches.
+    pub ack_class: AckClass,
     /// T, the base RTT the CC algorithms use for windows.
     pub base_rtt: Time,
     pub flows: Vec<FlowSpec>,
@@ -110,6 +140,7 @@ pub struct SimConfig {
 impl SimConfig {
     pub fn new(topo: Topology, cc: CcKind) -> Self {
         let ecn = EcnProfile::for_cc(&cc);
+        let ack_class = AckClass::authors_simulator(&cc);
         SimConfig {
             topo,
             cc,
@@ -122,6 +153,7 @@ impl SimConfig {
             buffer_bytes: 32 << 20,
             pfc: true,
             ecn,
+            ack_class,
             base_rtt: 13 * US,
             flows: Vec::new(),
             stop_time: Time::MAX,
@@ -575,10 +607,17 @@ impl Sim {
         if port.busy {
             return;
         }
-        if let Some(pkt) = port.ctrl_q.pop_front() {
-            port.ctrl_bytes -= self.pool.get(pkt).size as u64;
-            self.transmit(h, 0, pkt);
-            return;
+        let acks_paused = port.paused
+            && self.cfg.ack_class
+                == AckClass::SharedWithData {
+                    pausable_at_host: true,
+                };
+        if !acks_paused {
+            if let Some(pkt) = port.ctrl_q.pop_front() {
+                port.ctrl_bytes -= self.pool.get(pkt).size as u64;
+                self.transmit(h, 0, pkt);
+                return;
+            }
         }
         if port.paused {
             return;
@@ -593,6 +632,11 @@ impl Sim {
             if f.snd_nxt >= f.spec.size {
                 continue; // everything sent, waiting for ACKs
             }
+            debug_assert!(
+                f.snd_nxt >= f.snd_una,
+                "flow {} snd_nxt behind snd_una",
+                hs.active[idx]
+            );
             if f.ctl.win > 0 && f.snd_nxt - f.snd_una >= f.ctl.win {
                 continue; // window-limited; an ACK will wake us
             }
@@ -699,7 +743,10 @@ impl Sim {
                 None
             }
         } else {
-            None // duplicate
+            // Duplicate (a go-back-N retransmission of data already
+            // received): re-acknowledge, otherwise a lost final ACK would make
+            // the sender retransmit forever.
+            Some(Kind::Ack)
         };
         let (rcv_nxt, ack_hash, sender) = (f.rcv_nxt, f.ack_hash, f.spec.src);
         match reply {
@@ -746,6 +793,11 @@ impl Sim {
         if p.seq > f.snd_una {
             f.snd_una = p.seq;
             f.last_progress = now;
+            // A late ACK for data sent before a go-back-N rewind can
+            // acknowledge past the rewound snd_nxt.
+            if f.snd_nxt < f.snd_una {
+                f.snd_nxt = f.snd_una;
+            }
         }
         let view = AckView {
             now,
@@ -786,6 +838,8 @@ impl Sim {
         if f.snd_nxt > seq {
             f.snd_nxt = seq.max(f.snd_una);
             self.counters.retransmit_events += 1;
+        } else if f.snd_nxt < f.snd_una {
+            f.snd_nxt = f.snd_una; // late NACK after a rewind
         }
         let src = f.spec.src;
         self.host_try_send(src);
@@ -896,7 +950,7 @@ impl Sim {
                     self.switch_try_tx(s, in_port);
                 }
             }
-            Kind::Ack | Kind::Nack => {
+            Kind::Ack | Kind::Nack if self.cfg.ack_class == AckClass::Control => {
                 let sw = &self.switches[(s - self.n_hosts) as usize];
                 let out = self.routes.pick(s, p.dst, p.hash, sw.ecmp_seed);
                 let size = p.size as u64;
@@ -905,7 +959,10 @@ impl Sim {
                 port.ctrl_bytes += size;
                 self.switch_try_tx(s, out);
             }
-            Kind::Data => {
+            Kind::Data | Kind::Ack | Kind::Nack => {
+                // Data, and ACKs when they share the data class: buffer
+                // admission, PFC, FIFO egress queue.
+                let is_data = p.kind == Kind::Data;
                 let si = (s - self.n_hosts) as usize;
                 let out = self
                     .routes
@@ -913,8 +970,12 @@ impl Sim {
                 let size = p.size as u64;
                 let mmu = &mut self.switches[si].mmu;
                 if mmu.admit(in_port as usize, size) == Admit::Dropped {
-                    self.counters.drops += 1;
-                    self.counters.dropped_bytes += size;
+                    if is_data {
+                        self.counters.drops += 1;
+                        self.counters.dropped_bytes += size;
+                    } else {
+                        self.counters.ack_drops += 1;
+                    }
                     self.pool.free(pkt);
                     return;
                 }
@@ -975,7 +1036,8 @@ impl Sim {
         let in_port = p.in_port as usize;
         sw.mmu.dequeue(in_port, port_i as usize, size);
         // ECN: RED on the egress queue length at dequeue.
-        if let Some((kmin, kmax, pmax)) = port.ecn {
+        let is_data = p.kind == Kind::Data;
+        if let (Some((kmin, kmax, pmax)), true) = (port.ecn, is_data) {
             let qlen = sw.mmu.egress_bytes(port_i as usize);
             let mark = if qlen > kmax {
                 true
@@ -990,7 +1052,7 @@ impl Sim {
             }
         }
         // INT: stamp the egress port's state as the packet leaves (Fig. 7).
-        if self.int_enabled && (p.n_hops as usize) < MAX_HOPS {
+        if self.int_enabled && is_data && (p.n_hops as usize) < MAX_HOPS {
             p.hops[p.n_hops as usize] = IntHop {
                 ts: now,
                 tx_bytes: port.tx_bytes,

@@ -1,6 +1,6 @@
 //! Command-line driver. Run `hpcc-sim help` for usage.
 
-use hpcc_sim::experiments::{incast_n, micro, run, write_outputs, FctExperiment};
+use hpcc_sim::experiments::{from_ns3_files, incast_n, micro, run, write_outputs, FctExperiment};
 use hpcc_sim::time::{to_us, MS, NS, US};
 use hpcc_sim::workload::SizeCdf;
 use std::path::PathBuf;
@@ -10,10 +10,14 @@ const USAGE: &str = "usage:
   hpcc-sim fct    --cc NAME --workload fbhadoop|websearch --load 0.3 [--incast]
                   [--small] [--warmup-ms 1] [--measure-ms 5] [--tail-ms 15]
                   [--seed 1] [--wai BYTES] [--max-stage N] [--no-pfc]
-                  [--export-ns3 DIR] --out DIR
+                  [--acks-high-priority] [--export-ns3 DIR] --out DIR
   hpcc-sim incast --n 16 --cc NAME [--wai BYTES] [--duration-us 400] [--bin-ns 1000]
                   [--queue-sample-ns NS] --out DIR
   hpcc-sim micro  --kind longshort|incast|mice|fairshare --cc NAME --out DIR
+  hpcc-sim ns3    --topology FILE --flows FILE --cc NAME [--base-rtt-ns 13000] [--stop-ms 100]
+                  [--wai BYTES] [--max-stage N] [--trace-port NODE:PORT] [--sample-ns 1000]
+                  [--queue-sample-ns NS] [--stats-from-ms MS] [--acks-high-priority] [--seed N] --out DIR
+                  (runs a scenario given in the authors' ns-3 input format)
 CC names: none hpcc hpcc-perack hpcc-perrtt dcqcn dcqcn+win dctcp timely timely+win";
 
 struct Args(Vec<String>);
@@ -136,6 +140,7 @@ fn real_main(cmd: &str, mut a: Args) -> Result<(), String> {
                 .map(|v| v.parse().map_err(|_| "bad --wai".to_string()))
                 .transpose()?;
             e.pfc = !a.flag("--no-pfc");
+            e.acks_high_priority = a.flag("--acks-high-priority");
             e.max_stage = a
                 .val("--max-stage")?
                 .map(|v| v.parse().map_err(|_| "bad --max-stage".to_string()))
@@ -188,6 +193,42 @@ fn real_main(cmd: &str, mut a: Args) -> Result<(), String> {
                 ("cc", cc.clone()),
             ];
             (micro(&kind, &cc)?, meta, out)
+        }
+        "ns3" => {
+            let topo = PathBuf::from(a.req("--topology")?);
+            let flows = PathBuf::from(a.req("--flows")?);
+            let cc = a.req("--cc")?;
+            let mut cfg = from_ns3_files(&topo, &flows, &cc, 2.0)?;
+            cfg.seed = a.num("--seed", 1u64)?; // ECMP and ECN coin flips; flows come from the file
+            cfg.base_rtt = a.num("--base-rtt-ns", 13_000u64)? * NS;
+            cfg.stop_time = (a.num("--stop-ms", 100.0f64)? * MS as f64) as u64;
+            if let hpcc_sim::cc::CcKind::Hpcc(p) = &mut cfg.cc {
+                if let Some(w) = a.val("--wai")? {
+                    p.w_ai = w.parse().map_err(|_| "bad --wai")?;
+                }
+                if let Some(m) = a.val("--max-stage")? {
+                    p.max_stage = m.parse().map_err(|_| "bad --max-stage")?;
+                }
+            }
+            if let Some(q) = a.val("--queue-sample-ns")? {
+                cfg.queue_sample_interval =
+                    Some(q.parse::<u64>().map_err(|_| "bad --queue-sample-ns")? * NS);
+            }
+            cfg.stats_from = (a.num("--stats-from-ms", 0.0f64)? * MS as f64) as u64;
+            if a.flag("--acks-high-priority") {
+                cfg.ack_class = hpcc_sim::sim::AckClass::Control;
+            }
+            if let Some(tp) = a.val("--trace-port")? {
+                let (n, p) = tp.split_once(':').ok_or("--trace-port NODE:PORT")?;
+                cfg.trace_ports = vec![(
+                    n.parse().map_err(|_| "bad node")?,
+                    p.parse().map_err(|_| "bad port")?,
+                )];
+                cfg.trace_bin = a.num("--sample-ns", 1000u64)? * NS;
+            }
+            let out = PathBuf::from(a.req("--out")?);
+            let meta = vec![("experiment", "ns3-input".to_string()), ("cc", cc.clone())];
+            (cfg, meta, out)
         }
         _ => return Err(format!("unknown command '{cmd}'")),
     };

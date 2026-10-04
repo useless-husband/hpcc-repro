@@ -72,6 +72,9 @@ pub struct FctExperiment {
     pub max_stage: Option<u32>,
     pub pfc: bool,
     pub queue_sample: Time,
+    /// Put ACKs in a high-priority class instead of the data class (the
+    /// default mirrors the authors' simulator; see `sim::AckClass`).
+    pub acks_high_priority: bool,
 }
 
 impl FctExperiment {
@@ -90,6 +93,7 @@ impl FctExperiment {
             max_stage: None,
             pfc: true,
             queue_sample: 10 * US,
+            acks_high_priority: false,
         }
     }
 
@@ -140,6 +144,9 @@ impl FctExperiment {
         cfg.queue_sample_interval = Some(self.queue_sample);
         cfg.stats_from = self.warmup;
         cfg.base_rtt = 13 * US; // §5.1: T = 13 us for the simulations
+        if self.acks_high_priority {
+            cfg.ack_class = crate::sim::AckClass::Control;
+        }
         Ok(cfg)
     }
 
@@ -524,4 +531,105 @@ pub fn run(cfg: SimConfig) -> (Sim, f64) {
     let mut sim = Sim::new(cfg);
     sim.run();
     (sim, t0.elapsed().as_secs_f64())
+}
+
+/// Reads a topology and a flow list in the input format of the authors' ns-3
+/// simulator (`mix/topology.txt`, `mix/flow.txt`), so that both simulators can
+/// run exactly the same scenario. Hosts must be numbered before switches.
+/// Flow start times are in seconds; `offset_s` (2.0 in the authors' traffic
+/// generator) is subtracted.
+pub fn from_ns3_files(
+    topo_path: &Path,
+    flows_path: &Path,
+    cc: &str,
+    offset_s: f64,
+) -> Result<SimConfig, String> {
+    use crate::topology::{Link, Topology};
+    let read = |p: &Path| std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()));
+    let t = read(topo_path)?;
+    let mut lines = t.lines().filter(|l| !l.trim().is_empty());
+    let head: Vec<u32> = lines
+        .next()
+        .ok_or("empty topology")?
+        .split_whitespace()
+        .map(|x| x.parse().map_err(|_| "bad header"))
+        .collect::<Result<_, _>>()?;
+    let (n_nodes, n_sw, n_links) = (head[0], head[1], head[2]);
+    let sw: Vec<u32> = lines
+        .next()
+        .ok_or("missing switch list")?
+        .split_whitespace()
+        .map(|x| x.parse().unwrap_or(u32::MAX))
+        .collect();
+    let n_hosts = n_nodes - n_sw;
+    if sw.len() != n_sw as usize || sw.iter().enumerate().any(|(i, &s)| s != n_hosts + i as u32) {
+        return Err("switches must be the last node ids".into());
+    }
+    let parse_rate = |s: &str| -> Result<u64, String> {
+        let (num, mul) = if let Some(v) = s.strip_suffix("Gbps") {
+            (v, 1e9)
+        } else if let Some(v) = s.strip_suffix("Mbps") {
+            (v, 1e6)
+        } else {
+            return Err(format!("bad rate {s}"));
+        };
+        Ok((num.parse::<f64>().map_err(|_| format!("bad rate {s}"))? * mul) as u64)
+    };
+    let parse_delay = |s: &str| -> Result<Time, String> {
+        if let Some(v) = s.strip_suffix("ns") {
+            Ok(v.parse::<u64>().map_err(|_| format!("bad delay {s}"))? * 1000)
+        } else if let Some(v) = s.strip_suffix("us") {
+            Ok(v.parse::<u64>().map_err(|_| format!("bad delay {s}"))? * US)
+        } else {
+            Err(format!("bad delay {s}"))
+        }
+    };
+    let mut links = Vec::new();
+    for l in lines.take(n_links as usize) {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        if f.len() < 4 {
+            return Err(format!("bad link line '{l}'"));
+        }
+        links.push(Link {
+            a: f[0].parse().map_err(|_| "bad node")?,
+            b: f[1].parse().map_err(|_| "bad node")?,
+            rate_bps: parse_rate(f[2])?,
+            delay: parse_delay(f[3])?,
+        });
+    }
+    let topo = Topology {
+        name: "ns3-input".into(),
+        n_hosts,
+        n_switches: n_sw,
+        links,
+    };
+    topo.validate()?;
+    let host_rate = topo
+        .links
+        .iter()
+        .filter(|l| topo.is_host(l.a) || topo.is_host(l.b))
+        .map(|l| l.rate_bps)
+        .min()
+        .unwrap();
+    let fl = read(flows_path)?;
+    let mut flows = Vec::new();
+    for l in fl.lines().skip(1).filter(|l| !l.trim().is_empty()) {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        let start_s: f64 = f[5].parse().map_err(|_| format!("bad flow '{l}'"))?;
+        let tag = if f[3] == "200" {
+            FlowTag::Incast
+        } else {
+            FlowTag::Background
+        };
+        flows.push(FlowSpec {
+            src: f[0].parse().map_err(|_| "bad src")?,
+            dst: f[1].parse().map_err(|_| "bad dst")?,
+            size: f[4].parse().map_err(|_| "bad size")?,
+            start: ((start_s - offset_s) * 1e12).round().max(0.0) as Time,
+            tag,
+        });
+    }
+    let mut cfg = SimConfig::new(topo, cc_by_name(cc, host_rate, None)?);
+    cfg.flows = flows;
+    Ok(cfg)
 }

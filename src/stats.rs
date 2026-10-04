@@ -132,6 +132,9 @@ pub struct Counters {
     pub data_bytes_received: u64,
     pub drops: u64,
     pub dropped_bytes: u64,
+    /// ACK/NACK packets dropped (only possible when ACKs share the data
+    /// class and PFC is off).
+    pub ack_drops: u64,
     pub ecn_marks: u64,
     pub pause_frames: u64,
     pub resume_frames: u64,

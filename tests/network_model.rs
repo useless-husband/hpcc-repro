@@ -4,7 +4,7 @@
 use hpcc_sim::cc::CcKind;
 use hpcc_sim::experiments::cc_by_name;
 use hpcc_sim::rng::Rng;
-use hpcc_sim::sim::{ideal_fct, Sim, SimConfig};
+use hpcc_sim::sim::{ideal_fct, AckClass, Sim, SimConfig};
 use hpcc_sim::time::{gbps, ser_time, Time, MS, NS, US};
 use hpcc_sim::topology::{chain, fat_tree, star, FatTreeParams, Topology};
 use hpcc_sim::workload::{poisson, FlowSpec, FlowTag, FB_HADOOP};
@@ -176,6 +176,7 @@ fn without_pfc_the_same_incast_drops_and_go_back_n_recovers() {
     cfg.buffer_bytes = 4 << 20;
     cfg.pfc = false;
     cfg.flows = flows;
+    cfg.stop_time = 2_000 * MS; // a liveness bug must fail, not hang
     let mut sim = Sim::new(cfg);
     let mut t = 0;
     while !sim.run_until(t) {
@@ -341,10 +342,12 @@ fn identical_seed_identical_output() {
 
 #[test]
 fn golden_digest() {
-    // Pinned on macOS/arm64; CI recomputes it on Linux/x86-64. The model uses
-    // only exactly-rounded IEEE operations (and its own logarithm), so the
-    // digest must be identical on every platform. If an intentional model
-    // change alters it, update the constants and say why in the commit.
+    // Pinned on macOS/arm64 and checked identical on x86-64 (the same test
+    // built for x86_64-apple-darwin, run under Rosetta 2); CI recomputes it on
+    // Linux/x86-64. The model uses only exactly-rounded IEEE operations (and
+    // its own logarithm), so the digest must be identical on every platform
+    // (tests/portability.rs enforces that). If an intentional model change
+    // alters it, update the constants and say why in the commit.
     let got: Vec<u64> = ["hpcc", "dcqcn", "dctcp", "timely"]
         .iter()
         .map(|cc| digest(&small_run(7, cc)))
@@ -354,8 +357,73 @@ fn golden_digest() {
 }
 
 const GOLDEN: [u64; 4] = [
-    8052488282225703949,
-    2596658737050271722,
-    10046574938894289012,
-    12674327727610662015,
+    17182671329270609180,
+    9974200201482369164,
+    15219787083063490553,
+    12368814981191410483,
 ];
+
+#[test]
+fn lossy_mode_with_dropped_acks_still_completes() {
+    // Regression: with PFC off and ACKs sharing the data class, ACKs are
+    // dropped too. A lost final ACK must be recovered (duplicates are
+    // re-acknowledged) and a late ACK after a go-back-N rewind must not
+    // leave snd_nxt behind snd_una (which stalled a flow forever).
+    let mut rng = Rng::new(7);
+    let _ = rng.below(5);
+    let mut cfg = SimConfig::new(
+        chain(3, 3, gbps(100), gbps(100), US),
+        cc_by_name("dctcp", gbps(100), None).unwrap(),
+    );
+    cfg.seed = 7;
+    cfg.pfc = false;
+    cfg.buffer_bytes = 2 << 20;
+    cfg.flows = poisson(9, &FB_HADOOP, 0.6, gbps(100), 2 * MS, &mut rng);
+    cfg.stop_time = 60 * MS;
+    let mut sim = Sim::new(cfg);
+    sim.run();
+    assert!(
+        sim.counters.ack_drops > 0,
+        "the scenario must actually drop ACKs"
+    );
+    assert!(sim.counters.retransmit_events > 0);
+    assert_eq!(sim.fct.len(), sim.flows.len(), "every flow completes");
+    sim.check_conservation().unwrap();
+}
+
+#[test]
+fn ack_class_decides_whether_acks_wait_behind_data() {
+    // Two line-rate senders congest the switch port towards host 1. A small
+    // flow from host 1 to host 0 has its ACKs travel through that congested
+    // port: with ACKs in the data class (the authors' simulator) they queue
+    // behind the data; with a high-priority class they do not.
+    let run = |class: AckClass| {
+        let mut cfg = SimConfig::new(star(4, gbps(100), US), CcKind::None);
+        cfg.ack_class = class;
+        cfg.flows = vec![
+            flow(0, 1, 5_000_000, 0),
+            flow(2, 1, 5_000_000, 0),
+            FlowSpec {
+                src: 1,
+                dst: 3,
+                size: 100_000,
+                start: 200 * US,
+                tag: FlowTag::Micro,
+            },
+        ];
+        let mut sim = Sim::new(cfg);
+        sim.run();
+        let r = sim.fct.iter().find(|r| r.src == 1).unwrap().clone();
+        assert_eq!(sim.counters.drops, 0);
+        r.fct as f64 / r.ideal as f64
+    };
+    let shared = run(AckClass::SharedWithData {
+        pausable_at_host: true,
+    });
+    let control = run(AckClass::Control);
+    assert!(control < 1.05, "high-priority ACKs: slowdown {control:.3}");
+    assert!(
+        shared > 3.0,
+        "ACKs behind ~MBs of data: slowdown {shared:.3}"
+    );
+}

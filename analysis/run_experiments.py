@@ -53,6 +53,11 @@ def matrix(which):
         # Sensitivity: maxStage = 0 (the authors' run.py default) vs 5 (paper text).
         argv = ["fct", "--cc", "hpcc", "--workload", "fbhadoop", "--load", "0.5", "--max-stage", "0"] + win
         runs.append(("sens-fb50-hpcc-maxstage0", argv))
+        # Sensitivity: ACKs in a high-priority class (this simulator's original
+        # model) instead of the data class (the authors' simulator).
+        for cc in ["hpcc", "dcqcn"]:
+            argv = ["fct", "--cc", cc, "--workload", "fbhadoop", "--load", "0.5", "--acks-high-priority"] + win
+            runs.append((f"sens-fb50-{cc}-ackhigh", argv))
     # Figure 13: 16-to-1 incast, per-ACK vs per-RTT vs HPCC.
     for cc in ["hpcc", "hpcc-perack", "hpcc-perrtt"]:
         runs.append((f"fig13-{cc}", ["incast", "--n", "16", "--cc", cc, "--duration-us", "400", "--bin-ns", "2000"]))

@@ -43,12 +43,12 @@ ALPHA_RESUME_INTERVAL 1
 RATE_DECREASE_INTERVAL 4
 CLAMP_TARGET_RATE 0
 RP_TIMER 300
-EWMA_GAIN 0.00390625
+EWMA_GAIN {g}
 FAST_RECOVERY_TIMES 1
 RATE_AI {ai}Mb/s
 RATE_HAI {hai}Mb/s
 MIN_RATE 1000Mb/s
-DCTCP_RATE_AI 1000Mb/s
+DCTCP_RATE_AI {dctcp_ai}Mb/s
 ERROR_RATE_PER_LINK 0.0000
 L2_CHUNK_SIZE 4000
 L2_ACK_INTERVAL 1
@@ -68,9 +68,9 @@ RATE_BOUND 1
 ACK_HIGH_PRIO {ackp}
 LINK_DOWN 0 0 0
 ENABLE_TRACE 0
-KMAX_MAP 2 100000000000 1600 400000000000 6400
-KMIN_MAP 2 100000000000 400 400000000000 1600
-PMAX_MAP 2 100000000000 0.20 400000000000 0.20
+KMAX_MAP 2 100000000000 {kmax100} 400000000000 {kmax400}
+KMIN_MAP 2 100000000000 {kmin100} 400000000000 {kmin400}
+PMAX_MAP 2 100000000000 {pmax:.2f} 400000000000 {pmax:.2f}
 BUFFER_SIZE 32
 QLEN_MON_FILE {inp}/qlen_{cc}.txt
 QLEN_MON_START 3000000000
@@ -80,11 +80,19 @@ QLEN_MON_END 3000000000
 
 def write_config(a):
     inp = os.path.abspath(a.inputs)
+    # Values as in the authors' run.py for 100 Gbps NICs.
+    dcqcn_ecn = dict(kmin100=400, kmax100=1600, kmin400=1600, kmax400=6400, pmax=0.2)
+    base = dict(g=0.00390625, dctcp_ai=1000, **dcqcn_ecn)
     if a.cc == "hp":
         # W_AI = RATE_AI x maxRtt: 52 Mbps x 12.24 us (the binary's maxRtt for the small tree) ~ 80 B.
-        v = dict(mode=3, ai=52, hai=52, win=1, fast=1, ackp=0)
-    else:
-        v = dict(mode=1, ai=20, hai=200, win=0, fast=0, ackp=1)
+        v = dict(base, mode=3, ai=52, hai=52, win=1, fast=1, ackp=0)
+    elif a.cc == "dcqcn":
+        v = dict(base, mode=1, ai=20, hai=200, win=0, fast=0, ackp=1)
+    elif a.cc == "dctcp":
+        v = dict(base, mode=8, ai=10, hai=10, win=1, fast=0, ackp=0, g=0.0625, dctcp_ai=615,
+                 kmin100=300, kmax100=300, kmin400=1200, kmax400=1200, pmax=1.0)
+    else:  # timely
+        v = dict(base, mode=7, ai=100, hai=500, win=0, fast=0, ackp=1)
     with open(os.path.join(inp, "trace.txt"), "w") as f:
         f.write("0\n")
     with open(a.out, "w") as f:
@@ -130,7 +138,7 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("config")
-    c.add_argument("--cc", choices=["hp", "dcqcn"], required=True)
+    c.add_argument("--cc", choices=["hp", "dcqcn", "dctcp", "timely"], required=True)
     c.add_argument("--inputs", required=True)
     c.add_argument("--out", required=True)
     c.add_argument("--stop", default="2.014", help="ns-3 stop time in s (flows start at 2 s)")
