@@ -44,7 +44,13 @@ pub struct HpccParams {
 
 impl Default for HpccParams {
     fn default() -> Self {
-        HpccParams { eta: 0.95, max_stage: 5, w_ai: 80.0, min_rate_bps: 1_000_000_000, reaction: Reaction::Hpcc }
+        HpccParams {
+            eta: 0.95,
+            max_stage: 5,
+            w_ai: 80.0,
+            min_rate_bps: 1_000_000_000,
+            reaction: Reaction::Hpcc,
+        }
     }
 }
 
@@ -99,7 +105,10 @@ impl Hpcc {
         // Line 27: R = W / T, written as line_rate x W / W_init (W_init =
         // line_rate x T) so that W = W_init maps exactly to line rate.
         let rate = self.line_rate_bps as f64 * (self.w / self.w_init);
-        Ctl { rate_bps: clamp_rate(rate, self.p.min_rate_bps, self.line_rate_bps), win: self.w.ceil() as u64 }
+        Ctl {
+            rate_bps: clamp_rate(rate, self.p.min_rate_bps, self.line_rate_bps),
+            win: self.w.ceil() as u64,
+        }
     }
 
     fn store_l(&mut self, hops: &[IntHop]) {
@@ -121,7 +130,7 @@ impl Hpcc {
                 continue; // no new information about this hop
             }
             let b = cur.rate_bps as f64 / 8.0; // bytes per second
-            // Line 4: txRate = (ack.L[i].txBytes - L[i].txBytes) / (ack.L[i].ts - L[i].ts)
+                                               // Line 4: txRate = (ack.L[i].txBytes - L[i].txBytes) / (ack.L[i].ts - L[i].ts)
             let tx_rate = cur.tx_bytes.saturating_sub(last.tx_bytes) as f64 / (dt as f64 * 1e-12);
             // Line 5: u' = min(ack.L[i].qlen, L[i].qlen) / (ack.L[i].B * T) + txRate / ack.L[i].B
             let qlen = cur.qlen.min(last.qlen) as f64;
@@ -219,15 +228,31 @@ mod tests {
     use crate::time::{gbps, US};
 
     fn env() -> FlowEnv {
-        FlowEnv { line_rate_bps: gbps(100), base_rtt: 13 * US, mtu: 1000 }
+        FlowEnv {
+            line_rate_bps: gbps(100),
+            base_rtt: 13 * US,
+            mtu: 1000,
+        }
     }
 
     fn hop(ts_ns: u64, tx: u64, q: u64) -> IntHop {
-        IntHop { ts: ts_ns * 1000, tx_bytes: tx, qlen: q, rate_bps: gbps(100) }
+        IntHop {
+            ts: ts_ns * 1000,
+            tx_bytes: tx,
+            qlen: q,
+            rate_bps: gbps(100),
+        }
     }
 
     fn ack<'a>(hops: &'a [IntHop], seq: u64, nxt: u64) -> AckView<'a> {
-        AckView { now: 0, ack_seq: seq, snd_nxt: nxt, ecn: false, hops, rtt: 0 }
+        AckView {
+            now: 0,
+            ack_seq: seq,
+            snd_nxt: nxt,
+            ecn: false,
+            hops,
+            rtt: 0,
+        }
     }
 
     #[test]
@@ -274,21 +299,35 @@ mod tests {
         h.on_ack(&ack(&[hop(13_000, bdp, bdp)], 5_000, 12_000), &mut ctl);
         let w1 = h.w;
         assert!((w1 - (162_500.0 / (2.0 / 0.95) + 80.0)).abs() < 1e-6);
-        h.on_ack(&ack(&[hop(13_100, bdp + 1250, bdp)], 6_000, 13_000), &mut ctl);
-        assert!((h.w - w1).abs() / w1 < 0.01, "W must stay at W^c/(U/eta): {} vs {}", h.w, w1);
+        h.on_ack(
+            &ack(&[hop(13_100, bdp + 1250, bdp)], 6_000, 13_000),
+            &mut ctl,
+        );
+        assert!(
+            (h.w - w1).abs() / w1 < 0.01,
+            "W must stay at W^c/(U/eta): {} vs {}",
+            h.w,
+            w1
+        );
         assert_eq!(h.wc, 162_500.0, "W^c unchanged within the RTT");
     }
 
     #[test]
     fn per_ack_variant_compounds() {
         // The naive per-ACK reaction of Figure 13 does overreact.
-        let p = HpccParams { reaction: Reaction::PerAck, ..HpccParams::default() };
+        let p = HpccParams {
+            reaction: Reaction::PerAck,
+            ..HpccParams::default()
+        };
         let (mut h, mut ctl) = Hpcc::new(p, &env());
         let bdp = 162_500u64;
         h.on_ack(&ack(&[hop(0, 0, bdp)], 1000, 10_000), &mut ctl);
         h.on_ack(&ack(&[hop(13_000, bdp, bdp)], 5_000, 12_000), &mut ctl);
         let w1 = h.w;
-        h.on_ack(&ack(&[hop(13_100, bdp + 1250, bdp)], 6_000, 13_000), &mut ctl);
+        h.on_ack(
+            &ack(&[hop(13_100, bdp + 1250, bdp)], 6_000, 13_000),
+            &mut ctl,
+        );
         assert!(h.w < w1 * 0.6, "per-ACK must cut again: {} vs {}", h.w, w1);
     }
 
@@ -296,8 +335,10 @@ mod tests {
     fn additive_then_multiplicative_increase() {
         // An idle link (U well below eta) gives maxStage additive steps of
         // W_AI, then one multiplicative jump.
-        let mut p = HpccParams::default();
-        p.max_stage = 5;
+        let p = HpccParams {
+            max_stage: 5,
+            ..HpccParams::default()
+        };
         let (mut h, mut ctl) = Hpcc::new(p, &env());
         h.wc = 20_000.0;
         h.u = 0.5;
@@ -330,9 +371,16 @@ mod tests {
         // Hop 2 (the last) has a queue of half a BDP; hops 0 and 1 are idle.
         let first2 = [hop(0, 0, 0), hop(0, 0, 0), hop(0, 0, bdp / 2)];
         h.store_l(&first2);
-        let second = [hop(13_000, bdp / 4, 0), hop(13_000, bdp / 4, 0), hop(13_000, bdp, bdp / 2)];
+        let second = [
+            hop(13_000, bdp / 4, 0),
+            hop(13_000, bdp / 4, 0),
+            hop(13_000, bdp, bdp / 2),
+        ];
         let u = h.measure_inflight(&second);
-        assert!((u - 1.5).abs() < 1e-9, "u = {u}: must use the last hop (q=0.5 BDP, txRate=line)");
+        assert!(
+            (u - 1.5).abs() < 1e-9,
+            "u = {u}: must use the last hop (q=0.5 BDP, txRate=line)"
+        );
     }
 
     #[test]
@@ -342,14 +390,25 @@ mod tests {
         h.on_ack(&ack(&[hop(0, 0, 100_000_000)], 1, 2), &mut ctl);
         h.on_ack(&ack(&[hop(13_000, 162_500, 100_000_000)], 10, 20), &mut ctl);
         assert_eq!(ctl.rate_bps, 1_000_000_000);
-        assert!((h.w - 1625.0).abs() < 1e-6, "W clamped to min rate x T: {}", h.w);
+        assert!(
+            (h.w - 1625.0).abs() < 1e-6,
+            "W clamped to min rate x T: {}",
+            h.w
+        );
         // The link goes idle: AI for maxStage rounds, then MI back to W_init.
         // (With exactly zero traffic u' = 0 never exceeds u = 0, tau stays 0
         // and U does not move: that is Algorithm 1 as written, and also the
         // authors' code. A sender's own ACKed packets make u' > 0 in practice.)
         for k in 0..8 {
             // Only this flow's own packets cross the link: 1000 B per T.
-            h.on_ack(&ack(&[hop(26_000 + k * 13_000, 162_500 + (k + 1) * 1000, 0)], 100 + k * 100, 150 + k * 100), &mut ctl);
+            h.on_ack(
+                &ack(
+                    &[hop(26_000 + k * 13_000, 162_500 + (k + 1) * 1000, 0)],
+                    100 + k * 100,
+                    150 + k * 100,
+                ),
+                &mut ctl,
+            );
         }
         assert_eq!(ctl.rate_bps, gbps(100));
         assert!((h.w - 162_500.0).abs() < 1e-6);

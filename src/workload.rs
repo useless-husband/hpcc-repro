@@ -118,7 +118,14 @@ pub struct FlowSpec {
 /// `traffic_gen.py`): each host starts flows with exponential inter-arrival
 /// times whose mean makes its offered load `load x host_rate`; destinations
 /// are uniform over the other hosts.
-pub fn poisson(hosts: u32, cdf: &SizeCdf, load: f64, host_rate_bps: u64, duration: Time, rng: &mut Rng) -> Vec<FlowSpec> {
+pub fn poisson(
+    hosts: u32,
+    cdf: &SizeCdf,
+    load: f64,
+    host_rate_bps: u64,
+    duration: Time,
+    rng: &mut Rng,
+) -> Vec<FlowSpec> {
     assert!(hosts >= 2 && load > 0.0);
     let mean_gap_s = cdf.mean() * 8.0 / (host_rate_bps as f64 * load);
     let mut flows = Vec::new();
@@ -133,7 +140,13 @@ pub fn poisson(hosts: u32, cdf: &SizeCdf, load: f64, host_rate_bps: u64, duratio
             if dst >= src {
                 dst += 1;
             }
-            flows.push(FlowSpec { src, dst, size: cdf.sample(rng), start, tag: FlowTag::Background });
+            flows.push(FlowSpec {
+                src,
+                dst,
+                size: cdf.sample(rng),
+                start,
+                tag: FlowTag::Background,
+            });
             t += rng.exponential(mean_gap_s);
         }
     }
@@ -172,7 +185,13 @@ pub fn incast(
         for i in 0..fan_in as usize {
             let j = i + rng.below((cand.len() - i) as u64) as usize;
             cand.swap(i, j);
-            flows.push(FlowSpec { src: cand[i], dst, size, start, tag: FlowTag::Incast });
+            flows.push(FlowSpec {
+                src: cand[i],
+                dst,
+                size,
+                start,
+                tag: FlowTag::Incast,
+            });
         }
         t += rng.exponential(mean_gap_s);
     }
@@ -190,7 +209,11 @@ mod tests {
             assert_eq!(c.points[0].1, 0.0);
             assert_eq!(c.points.last().unwrap().1, 100.0);
             for w in c.points.windows(2) {
-                assert!(w[1].0 > w[0].0 && w[1].1 > w[0].1, "{} not increasing", c.name);
+                assert!(
+                    w[1].0 > w[0].0 && w[1].1 > w[0].1,
+                    "{} not increasing",
+                    c.name
+                );
             }
         }
     }
@@ -198,8 +221,16 @@ mod tests {
     #[test]
     fn means_match_hand_calculation() {
         // Trapezoid means of the tabulated CDFs.
-        assert!((WEB_SEARCH.mean() - 1_711_250.0).abs() < 1.0, "{}", WEB_SEARCH.mean());
-        assert!((FB_HADOOP.mean() - 120_420.75).abs() < 1.0, "{}", FB_HADOOP.mean());
+        assert!(
+            (WEB_SEARCH.mean() - 1_711_250.0).abs() < 1.0,
+            "{}",
+            WEB_SEARCH.mean()
+        );
+        assert!(
+            (FB_HADOOP.mean() - 120_420.75).abs() < 1.0,
+            "{}",
+            FB_HADOOP.mean()
+        );
     }
 
     #[test]
@@ -209,7 +240,9 @@ mod tests {
         assert_eq!(FB_HADOOP.quantile(0.0), 1);
         let mut r = Rng::new(5);
         let n = 200_000;
-        let short = (0..n).filter(|_| FB_HADOOP.sample(&mut r) <= 120_000).count();
+        let short = (0..n)
+            .filter(|_| FB_HADOOP.sample(&mut r) <= 120_000)
+            .count();
         assert!((short as f64 / n as f64 - 0.90).abs() < 0.005);
     }
 
@@ -236,7 +269,9 @@ mod tests {
             srcs.sort();
             srcs.dedup();
             assert_eq!(srcs.len(), 60, "distinct senders");
-            assert!(ev.iter().all(|f| f.dst == ev[0].dst && f.src != f.dst && f.start == ev[0].start));
+            assert!(ev
+                .iter()
+                .all(|f| f.dst == ev[0].dst && f.src != f.dst && f.start == ev[0].start));
         }
         let bytes: u64 = flows.iter().map(|f| f.size).sum();
         let frac = bytes as f64 * 8.0 / 0.1 / (320.0 * 100e9);

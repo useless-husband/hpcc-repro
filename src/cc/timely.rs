@@ -80,11 +80,16 @@ impl Timely {
     fn ctl(&self) -> Ctl {
         let rate = clamp_rate(self.rate, self.p.min_rate_bps, self.line_rate_bps);
         let win = if self.p.window {
-            (self.w_init * rate as f64 / self.line_rate_bps as f64).ceil().max(1.0) as u64
+            (self.w_init * rate as f64 / self.line_rate_bps as f64)
+                .ceil()
+                .max(1.0) as u64
         } else {
             0
         };
-        Ctl { rate_bps: rate, win }
+        Ctl {
+            rate_bps: rate,
+            win,
+        }
     }
 
     pub fn on_ack(&mut self, ack: &AckView, ctl: &mut Ctl) {
@@ -115,7 +120,11 @@ impl Timely {
     }
 
     fn increase(&mut self) {
-        let step = if self.inc_stage < 5 { self.p.delta_bps } else { self.p.hai_bps };
+        let step = if self.inc_stage < 5 {
+            self.p.delta_bps
+        } else {
+            self.p.hai_bps
+        };
         self.rate = (self.rate + step as f64).min(self.line_rate_bps as f64);
         self.inc_stage += 1;
     }
@@ -132,11 +141,22 @@ mod tests {
     use crate::time::gbps;
 
     fn env() -> FlowEnv {
-        FlowEnv { line_rate_bps: gbps(100), base_rtt: 13 * US, mtu: 1000 }
+        FlowEnv {
+            line_rate_bps: gbps(100),
+            base_rtt: 13 * US,
+            mtu: 1000,
+        }
     }
 
     fn a(seq: u64, nxt: u64, rtt: Time) -> AckView<'static> {
-        AckView { now: 0, ack_seq: seq, snd_nxt: nxt, ecn: false, hops: &[], rtt }
+        AckView {
+            now: 0,
+            ack_seq: seq,
+            snd_nxt: nxt,
+            ecn: false,
+            hops: &[],
+            rtt,
+        }
     }
 
     #[test]
@@ -154,7 +174,11 @@ mod tests {
         t.on_ack(&a(10, 20, 100 * US), &mut ctl);
         t.on_ack(&a(30, 40, 102 * US), &mut ctl);
         // diff = 0.875 * 2us; gradient = 1.75/20 = 0.0875; c = 1 - 0.07
-        assert!((t.rate - 100e9 * (1.0 - 0.8 * 0.0875)).abs() < 10.0, "{}", t.rate);
+        assert!(
+            (t.rate - 100e9 * (1.0 - 0.8 * 0.0875)).abs() < 10.0,
+            "{}",
+            t.rate
+        );
     }
 
     #[test]
@@ -166,7 +190,11 @@ mod tests {
             t.on_ack(&a(30 + 20 * k, 40 + 20 * k, 20 * US), &mut ctl);
         }
         // 5 steps of 100 Mbps, then 2 of 500 Mbps.
-        assert!((t.rate - (10e9 + 5.0 * 100e6 + 2.0 * 500e6)).abs() < 1.0, "{}", t.rate);
+        assert!(
+            (t.rate - (10e9 + 5.0 * 100e6 + 2.0 * 500e6)).abs() < 1.0,
+            "{}",
+            t.rate
+        );
         assert!(ctl.win > 0);
     }
 }

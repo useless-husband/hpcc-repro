@@ -36,7 +36,9 @@ impl Rng {
 
     /// An independent stream derived from `seed` and a stream label.
     pub fn stream(seed: u64, label: u64) -> Self {
-        Rng::new(mix64(seed ^ mix64(label.wrapping_mul(0xD6E8_FEB8_6659_FD93))))
+        Rng::new(mix64(
+            seed ^ mix64(label.wrapping_mul(0xD6E8_FEB8_6659_FD93)),
+        ))
     }
 
     #[inline]
@@ -137,7 +139,11 @@ mod tests {
         let v: Vec<u64> = (0..3).map(|_| r.next_u64()).collect();
         assert_eq!(v, KNOWN);
     }
-    const KNOWN: [u64; 3] = [18001451845637162709, 15091038358276433251, 7540168338507695658];
+    const KNOWN: [u64; 3] = [
+        18001451845637162709,
+        15091038358276433251,
+        7540168338507695658,
+    ];
 
     #[test]
     fn matches_reference_xoshiro256starstar() {
@@ -155,7 +161,10 @@ mod tests {
             let x = r.uniform() * 1e6 + 1e-300;
             let d = det_ln(x);
             let l = x.ln();
-            assert!((d - l).abs() <= 4.0 * f64::EPSILON * l.abs().max(1.0), "x={x} det={d} libm={l}");
+            assert!(
+                (d - l).abs() <= 4.0 * f64::EPSILON * l.abs().max(1.0),
+                "x={x} det={d} libm={l}"
+            );
         }
         assert_eq!(det_ln(1.0), 0.0);
         assert!((det_ln(f64::MIN_POSITIVE / 8.0) - (f64::MIN_POSITIVE / 8.0).ln()).abs() < 1e-12);

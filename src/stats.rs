@@ -16,7 +16,10 @@ const SUB_BITS: u32 = 7;
 
 impl Default for LogHist {
     fn default() -> Self {
-        LogHist { counts: vec![0; (SUB as usize) * 60], total: 0 }
+        LogHist {
+            counts: vec![0; (SUB as usize) * 60],
+            total: 0,
+        }
     }
 }
 
@@ -81,7 +84,11 @@ impl LogHist {
 
     /// Non-empty buckets as (lower bound, count).
     pub fn buckets(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
-        self.counts.iter().enumerate().filter(|(_, c)| **c > 0).map(|(i, c)| (Self::bucket_low(i), *c))
+        self.counts
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| **c > 0)
+            .map(|(i, c)| (Self::bucket_low(i), *c))
     }
 
     pub fn merge(&mut self, o: &LogHist) {

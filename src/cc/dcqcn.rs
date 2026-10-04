@@ -94,11 +94,16 @@ impl Dcqcn {
     fn ctl(&self) -> Ctl {
         let rate = clamp_rate(self.rc, self.p.min_rate_bps, self.line_rate_bps);
         let win = if self.p.window {
-            (self.w_init * rate as f64 / self.line_rate_bps as f64).ceil().max(1.0) as u64
+            (self.w_init * rate as f64 / self.line_rate_bps as f64)
+                .ceil()
+                .max(1.0) as u64
         } else {
             0
         };
-        Ctl { rate_bps: rate, win }
+        Ctl {
+            rate_bps: rate,
+            win,
+        }
     }
 
     /// An ACK with the ECN echo set is a CNP.
@@ -171,11 +176,22 @@ mod tests {
     use crate::time::gbps;
 
     fn env() -> FlowEnv {
-        FlowEnv { line_rate_bps: gbps(100), base_rtt: 13 * US, mtu: 1000 }
+        FlowEnv {
+            line_rate_bps: gbps(100),
+            base_rtt: 13 * US,
+            mtu: 1000,
+        }
     }
 
     fn cnp() -> AckView<'static> {
-        AckView { now: 0, ack_seq: 0, snd_nxt: 0, ecn: true, hops: &[], rtt: 0 }
+        AckView {
+            now: 0,
+            ack_seq: 0,
+            snd_nxt: 0,
+            ecn: true,
+            hops: &[],
+            rtt: 0,
+        }
     }
 
     #[test]
@@ -222,7 +238,10 @@ mod tests {
         d.on_ack(&cnp(), &mut ctl, &mut TimerReqs::default());
         d.on_timer(TIMER_DECREASE, 0, &mut ctl, &mut TimerReqs::default());
         assert!(ctl.rate_bps < gbps(51));
-        assert!(ctl.win < 162_500 / 2 + 1000, "DCQCN+win window follows the rate");
+        assert!(
+            ctl.win < 162_500 / 2 + 1000,
+            "DCQCN+win window follows the rate"
+        );
         // Fast recovery halves the gap to R_T each round.
         d.on_timer(TIMER_INCREASE, 0, &mut ctl, &mut TimerReqs::default());
         assert!(ctl.rate_bps > gbps(74));

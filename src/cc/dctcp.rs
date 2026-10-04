@@ -23,7 +23,10 @@ pub struct DctcpParams {
 
 impl Default for DctcpParams {
     fn default() -> Self {
-        DctcpParams { g: 1.0 / 16.0, min_rate_bps: 1_000_000_000 }
+        DctcpParams {
+            g: 1.0 / 16.0,
+            min_rate_bps: 1_000_000_000,
+        }
     }
 }
 
@@ -67,7 +70,10 @@ impl Dctcp {
 
     fn ctl(&self) -> Ctl {
         let rate = self.line_rate_bps as f64 * (self.cwnd / self.w_init);
-        Ctl { rate_bps: clamp_rate(rate, self.p.min_rate_bps, self.line_rate_bps), win: self.cwnd.ceil() as u64 }
+        Ctl {
+            rate_bps: clamp_rate(rate, self.p.min_rate_bps, self.line_rate_bps),
+            win: self.cwnd.ceil() as u64,
+        }
     }
 
     pub fn on_ack(&mut self, ack: &AckView, ctl: &mut Ctl) {
@@ -107,11 +113,22 @@ mod tests {
     use crate::time::{gbps, US};
 
     fn env() -> FlowEnv {
-        FlowEnv { line_rate_bps: gbps(100), base_rtt: 13 * US, mtu: 1000 }
+        FlowEnv {
+            line_rate_bps: gbps(100),
+            base_rtt: 13 * US,
+            mtu: 1000,
+        }
     }
 
     fn a(seq: u64, nxt: u64, ecn: bool) -> AckView<'static> {
-        AckView { now: 0, ack_seq: seq, snd_nxt: nxt, ecn, hops: &[], rtt: 0 }
+        AckView {
+            now: 0,
+            ack_seq: seq,
+            snd_nxt: nxt,
+            ecn,
+            hops: &[],
+            rtt: 0,
+        }
     }
 
     #[test]
@@ -119,7 +136,10 @@ mod tests {
         let (mut d, mut ctl) = Dctcp::new(DctcpParams::default(), &env());
         assert_eq!(ctl.rate_bps, gbps(100));
         d.on_ack(&a(1000, 100_000, true), &mut ctl);
-        assert!((d.cwnd - 81_250.0).abs() < 1e-6, "alpha starts at 1 -> halve");
+        assert!(
+            (d.cwnd - 81_250.0).abs() < 1e-6,
+            "alpha starts at 1 -> halve"
+        );
         // More marks within the same window: no further reduction.
         for s in 2..50 {
             d.on_ack(&a(s * 1000, 100_000, true), &mut ctl);

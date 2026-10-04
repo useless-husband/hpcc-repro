@@ -61,9 +61,16 @@ impl Mmu {
     pub fn new(cfg: MmuConfig) -> Self {
         let n = cfg.headroom.len();
         assert_eq!(cfg.alpha_shift.len(), n);
-        let total_hdrm = if cfg.pfc_enabled { cfg.headroom.iter().sum() } else { 0 };
+        let total_hdrm = if cfg.pfc_enabled {
+            cfg.headroom.iter().sum()
+        } else {
+            0
+        };
         let total_rsrv = cfg.reserve * n as u64;
-        assert!(total_hdrm + total_rsrv < cfg.buffer_bytes, "buffer too small for headroom+reserve");
+        assert!(
+            total_hdrm + total_rsrv < cfg.buffer_bytes,
+            "buffer too small for headroom+reserve"
+        );
         Mmu {
             cfg,
             total_hdrm,
@@ -79,7 +86,10 @@ impl Mmu {
     /// Dynamic PFC threshold of ingress `port` given the current free buffer.
     #[inline]
     pub fn threshold(&self, port: usize) -> u64 {
-        let free = self.cfg.buffer_bytes.saturating_sub(self.total_hdrm + self.total_rsrv + self.shared_used);
+        let free = self
+            .cfg
+            .buffer_bytes
+            .saturating_sub(self.total_hdrm + self.total_rsrv + self.shared_used);
         free >> self.cfg.alpha_shift[port]
     }
 
@@ -128,10 +138,16 @@ impl Mmu {
         let from_ingress = size - from_hdrm;
         let from_shared = from_ingress.min(self.shared_used_by(in_port));
         self.hdrm[in_port] -= from_hdrm;
-        assert!(self.ingress[in_port] >= from_ingress, "ingress underflow on port {in_port}");
+        assert!(
+            self.ingress[in_port] >= from_ingress,
+            "ingress underflow on port {in_port}"
+        );
         self.ingress[in_port] -= from_ingress;
         self.shared_used -= from_shared;
-        assert!(self.egress[out_port] >= size, "egress underflow on port {out_port}");
+        assert!(
+            self.egress[out_port] >= size,
+            "egress underflow on port {out_port}"
+        );
         self.egress[out_port] -= size;
     }
 
@@ -185,13 +201,21 @@ impl Mmu {
         if ing != eg {
             return Err(format!("ingress+headroom {ing} != egress {eg}"));
         }
-        let shared: u64 = (0..self.ingress.len()).map(|p| self.shared_used_by(p)).sum();
+        let shared: u64 = (0..self.ingress.len())
+            .map(|p| self.shared_used_by(p))
+            .sum();
         if shared != self.shared_used {
-            return Err(format!("shared_used {} != sum of per-port shared {shared}", self.shared_used));
+            return Err(format!(
+                "shared_used {} != sum of per-port shared {shared}",
+                self.shared_used
+            ));
         }
         for (p, &h) in self.hdrm.iter().enumerate() {
             if h > self.cfg.headroom[p] && self.cfg.pfc_enabled {
-                return Err(format!("headroom overflow on port {p}: {h} > {}", self.cfg.headroom[p]));
+                return Err(format!(
+                    "headroom overflow on port {p}: {h} > {}",
+                    self.cfg.headroom[p]
+                ));
             }
         }
         if eg > self.cfg.buffer_bytes {
@@ -253,7 +277,10 @@ mod tests {
             if used >= th {
                 break;
             }
-            assert!(!m.should_pause(0), "paused below threshold: used {used} < th {th}");
+            assert!(
+                !m.should_pause(0),
+                "paused below threshold: used {used} < th {th}"
+            );
             m.enqueue(0, 1, 1);
             n += 1;
         }
@@ -279,17 +306,15 @@ mod tests {
         let mut m = Mmu::new(cfg(2, 400_000, true));
         // Push past the threshold; the extra goes to headroom.
         let mut accepted = 0u64;
-        loop {
-            match m.admit(0, 1000) {
-                Admit::Accepted => {
-                    m.enqueue(0, 1, 1000);
-                    accepted += 1000;
-                }
-                Admit::Dropped => break,
-            }
+        while m.admit(0, 1000) == Admit::Accepted {
+            m.enqueue(0, 1, 1000);
+            accepted += 1000;
             m.check_invariants().unwrap();
         }
-        assert!(m.headroom_used(0) > 37_500 - 1000, "headroom nearly full when dropping");
+        assert!(
+            m.headroom_used(0) > 37_500 - 1000,
+            "headroom nearly full when dropping"
+        );
         assert!(m.headroom_used(0) <= 37_500);
         assert_eq!(m.total_buffered(), accepted);
     }
@@ -322,13 +347,13 @@ mod tests {
                 if let Err(e) = m.check_invariants() {
                     panic!("seed {seed} step {step}: {e}");
                 }
-                for p in 0..ports {
-                    let q: u64 = queues[p].iter().map(|x| x.1).sum();
+                for (p, queue) in queues.iter().enumerate() {
+                    let q: u64 = queue.iter().map(|x| x.1).sum();
                     assert_eq!(q, m.egress_bytes(p), "seed {seed}");
                 }
             }
-            for out in 0..ports {
-                while let Some((inp, size)) = queues[out].pop_front() {
+            for (out, queue) in queues.iter_mut().enumerate() {
+                while let Some((inp, size)) = queue.pop_front() {
                     m.dequeue(inp, out, size);
                 }
             }

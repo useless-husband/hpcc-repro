@@ -9,8 +9,9 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   hpcc-sim fct    --cc NAME --workload fbhadoop|websearch --load 0.3 [--incast]
                   [--small] [--warmup-ms 1] [--measure-ms 5] [--tail-ms 15]
-                  [--seed 1] [--wai BYTES] [--no-pfc] --out DIR
-  hpcc-sim incast --n 16 --cc NAME [--wai BYTES] [--duration-us 400] [--bin-ns 1000] --out DIR
+                  [--seed 1] [--wai BYTES] [--max-stage N] [--no-pfc] --out DIR
+  hpcc-sim incast --n 16 --cc NAME [--wai BYTES] [--duration-us 400] [--bin-ns 1000]
+                  [--queue-sample-ns NS] --out DIR
   hpcc-sim micro  --kind longshort|incast|mice|fairshare --cc NAME --out DIR
 CC names: none hpcc hpcc-perack hpcc-perrtt dcqcn dcqcn+win dctcp timely timely+win";
 
@@ -85,39 +86,68 @@ fn real_main(cmd: &str, mut a: Args) -> Result<(), String> {
             e.measure = (a.num("--measure-ms", 5.0f64)? * MS as f64) as u64;
             e.tail = (a.num("--tail-ms", 15.0f64)? * MS as f64) as u64;
             e.seed = a.num("--seed", 1u64)?;
-            e.wai = a.val("--wai")?.map(|v| v.parse().map_err(|_| "bad --wai".to_string())).transpose()?;
+            e.wai = a
+                .val("--wai")?
+                .map(|v| v.parse().map_err(|_| "bad --wai".to_string()))
+                .transpose()?;
             e.pfc = !a.flag("--no-pfc");
+            e.max_stage = a
+                .val("--max-stage")?
+                .map(|v| v.parse().map_err(|_| "bad --max-stage".to_string()))
+                .transpose()?;
             let out = PathBuf::from(a.req("--out")?);
             (e.config()?, e.describe(), out)
         }
         "incast" => {
             let n: u32 = a.num("--n", 16)?;
             let cc = a.req("--cc")?;
-            let wai: Option<f64> = a.val("--wai")?.map(|v| v.parse().map_err(|_| "bad --wai".to_string())).transpose()?;
+            let wai: Option<f64> = a
+                .val("--wai")?
+                .map(|v| v.parse().map_err(|_| "bad --wai".to_string()))
+                .transpose()?;
             let dur = a.num("--duration-us", 400u64)? * US;
             let bin = a.num("--bin-ns", 1000u64)? * NS;
+            let qs: Option<u64> = a
+                .val("--queue-sample-ns")?
+                .map(|v| v.parse().map_err(|_| "bad --queue-sample-ns".to_string()))
+                .transpose()?;
             let out = PathBuf::from(a.req("--out")?);
             let meta = vec![
                 ("experiment", "incast".to_string()),
                 ("n", n.to_string()),
                 ("cc", cc.clone()),
-                ("wai", wai.map(|w| w.to_string()).unwrap_or_else(|| "default".into())),
+                (
+                    "wai",
+                    wai.map(|w| w.to_string())
+                        .unwrap_or_else(|| "default".into()),
+                ),
             ];
-            (incast_n(n, &cc, wai, dur, bin)?, meta, out)
+            let mut cfg = incast_n(n, &cc, wai, dur, bin)?;
+            cfg.queue_sample_interval = qs.map(|q| q * NS);
+            (cfg, meta, out)
         }
         "micro" => {
             let kind = a.req("--kind")?;
             let cc = a.req("--cc")?;
             let out = PathBuf::from(a.req("--out")?);
-            let meta = vec![("experiment", "micro".to_string()), ("kind", kind.clone()), ("cc", cc.clone())];
+            let meta = vec![
+                ("experiment", "micro".to_string()),
+                ("kind", kind.clone()),
+                ("cc", cc.clone()),
+            ];
             (micro(&kind, &cc)?, meta, out)
         }
         _ => return Err(format!("unknown command '{cmd}'")),
     };
     a.done()?;
-    let label = meta.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(" ");
+    let label = meta
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(" ");
     let (sim, wall) = run(cfg);
-    write_outputs(&sim, &out, &meta, wall).map_err(|e| format!("writing {}: {e}", out.display()))?;
+    write_outputs(&sim, &out, &meta, wall)
+        .map_err(|e| format!("writing {}: {e}", out.display()))?;
     let (ph, ps) = sim.pause_time();
     println!(
         "{label}: {} flows done, sim {:.3} ms, {} events in {:.1} s, drops {}, pause frames {}, host pause {:.1} us, switch pause {:.1} us, rtt p95 {:.1} us",

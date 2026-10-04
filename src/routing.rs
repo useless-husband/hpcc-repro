@@ -66,12 +66,13 @@ impl Routes {
         let mut ranges = Vec::with_capacity(t.n_switches as usize * nh);
         let mut ports = Vec::new();
         for s in t.n_hosts..t.n_nodes() {
-            for h in 0..nh {
+            for (h, dh) in dist.iter().enumerate() {
                 let start = ports.len() as u32;
-                let ds = dist[h][s as usize];
+                let ds = dh[s as usize];
                 for (pi, &(v, _, _)) in pm.ports[s as usize].iter().enumerate() {
-                    let dv = dist[h][v as usize];
-                    let usable = (!t.is_host(v) || v as usize == h) && dv != u32::MAX && dv + 1 == ds;
+                    let dv = dh[v as usize];
+                    let usable =
+                        (!t.is_host(v) || v as usize == h) && dv != u32::MAX && dv + 1 == ds;
                     if usable {
                         ports.push(pi as u16);
                     }
@@ -79,7 +80,12 @@ impl Routes {
                 ranges.push((start, (ports.len() as u32 - start) as u16));
             }
         }
-        Routes { n_hosts: t.n_hosts, ranges, ports, dist }
+        Routes {
+            n_hosts: t.n_hosts,
+            ranges,
+            ports,
+            dist,
+        }
     }
 
     /// Equal-cost egress ports at switch `node` towards host `dst`.
@@ -154,7 +160,10 @@ mod tests {
             counts[idx] += 1;
         }
         for c in counts {
-            assert!((9_400..10_600).contains(&c), "uneven ECMP spread {counts:?}");
+            assert!(
+                (9_400..10_600).contains(&c),
+                "uneven ECMP spread {counts:?}"
+            );
         }
     }
 

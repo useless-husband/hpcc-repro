@@ -118,7 +118,12 @@ pub fn fat_tree(p: &FatTreeParams) -> Topology {
     let core0 = agg0 + n_agg;
     let mut links = Vec::new();
     for h in 0..n_hosts {
-        links.push(Link { a: h, b: tor0 + h / p.hosts_per_tor, rate_bps: p.host_rate_bps, delay: p.delay });
+        links.push(Link {
+            a: h,
+            b: tor0 + h / p.hosts_per_tor,
+            rate_bps: p.host_rate_bps,
+            delay: p.delay,
+        });
     }
     for pod in 0..p.pods {
         for t in 0..p.tors_per_pod {
@@ -154,22 +159,55 @@ pub fn fat_tree(p: &FatTreeParams) -> Topology {
 
 /// `n` hosts on one switch (the paper's §5.4 micro-benchmark topology).
 pub fn star(n: u32, rate_bps: u64, delay: Time) -> Topology {
-    let links = (0..n).map(|h| Link { a: h, b: n, rate_bps, delay }).collect();
-    Topology { name: format!("star-{n}"), n_hosts: n, n_switches: 1, links }
+    let links = (0..n)
+        .map(|h| Link {
+            a: h,
+            b: n,
+            rate_bps,
+            delay,
+        })
+        .collect();
+    Topology {
+        name: format!("star-{n}"),
+        n_hosts: n,
+        n_switches: 1,
+        links,
+    }
 }
 
 /// A chain of `k` switches with `hosts_per_switch` hosts on each switch.
 /// Used to test multi-hop timing and multi-bottleneck behaviour.
-pub fn chain(k: u32, hosts_per_switch: u32, host_rate: u64, core_rate: u64, delay: Time) -> Topology {
+pub fn chain(
+    k: u32,
+    hosts_per_switch: u32,
+    host_rate: u64,
+    core_rate: u64,
+    delay: Time,
+) -> Topology {
     let n_hosts = k * hosts_per_switch;
     let mut links = Vec::new();
     for h in 0..n_hosts {
-        links.push(Link { a: h, b: n_hosts + h / hosts_per_switch, rate_bps: host_rate, delay });
+        links.push(Link {
+            a: h,
+            b: n_hosts + h / hosts_per_switch,
+            rate_bps: host_rate,
+            delay,
+        });
     }
     for s in 0..k.saturating_sub(1) {
-        links.push(Link { a: n_hosts + s, b: n_hosts + s + 1, rate_bps: core_rate, delay });
+        links.push(Link {
+            a: n_hosts + s,
+            b: n_hosts + s + 1,
+            rate_bps: core_rate,
+            delay,
+        });
     }
-    Topology { name: format!("chain-{k}"), n_hosts, n_switches: k, links }
+    Topology {
+        name: format!("chain-{k}"),
+        n_hosts,
+        n_switches: k,
+        links,
+    }
 }
 
 #[cfg(test)]
@@ -192,8 +230,18 @@ mod tests {
         }
         // Non-blocking: per ToR, 16 x 100G down and 4 x 400G up.
         let tor = 320;
-        let up: u64 = t.links.iter().filter(|l| l.a == tor).map(|l| l.rate_bps).sum();
-        let down: u64 = t.links.iter().filter(|l| l.b == tor).map(|l| l.rate_bps).sum();
+        let up: u64 = t
+            .links
+            .iter()
+            .filter(|l| l.a == tor)
+            .map(|l| l.rate_bps)
+            .sum();
+        let down: u64 = t
+            .links
+            .iter()
+            .filter(|l| l.b == tor)
+            .map(|l| l.rate_bps)
+            .sum();
         assert_eq!(up, down);
     }
 
@@ -203,15 +251,30 @@ mod tests {
         t.validate().unwrap();
         assert_eq!(t.n_hosts, 32);
         let tor = 32;
-        let up: u64 = t.links.iter().filter(|l| l.a == tor).map(|l| l.rate_bps).sum();
-        let down: u64 = t.links.iter().filter(|l| l.b == tor).map(|l| l.rate_bps).sum();
+        let up: u64 = t
+            .links
+            .iter()
+            .filter(|l| l.a == tor)
+            .map(|l| l.rate_bps)
+            .sum();
+        let down: u64 = t
+            .links
+            .iter()
+            .filter(|l| l.b == tor)
+            .map(|l| l.rate_bps)
+            .sum();
         assert_eq!(up, down);
     }
 
     #[test]
     fn validate_rejects_bad_hosts() {
         let mut t = star(2, gbps(100), US);
-        t.links.push(Link { a: 0, b: 2, rate_bps: 1, delay: 0 });
+        t.links.push(Link {
+            a: 0,
+            b: 2,
+            rate_bps: 1,
+            delay: 0,
+        });
         assert!(t.validate().is_err());
     }
 }

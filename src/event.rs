@@ -49,7 +49,12 @@ impl<E> Default for EventQueue<E> {
 
 impl<E> EventQueue<E> {
     pub fn new() -> Self {
-        EventQueue { heap: BinaryHeap::with_capacity(1 << 16), seq: 0, now: 0, popped: 0 }
+        EventQueue {
+            heap: BinaryHeap::with_capacity(1 << 16),
+            seq: 0,
+            now: 0,
+            popped: 0,
+        }
     }
 
     /// Current simulated time (time of the last popped event).
@@ -62,8 +67,16 @@ impl<E> EventQueue<E> {
     /// simulator bug, so it panics.
     #[inline]
     pub fn schedule(&mut self, t: Time, ev: E) {
-        assert!(t >= self.now, "event scheduled in the past: {t} < {}", self.now);
-        self.heap.push(Entry { time: t, seq: self.seq, ev });
+        assert!(
+            t >= self.now,
+            "event scheduled in the past: {t} < {}",
+            self.now
+        );
+        self.heap.push(Entry {
+            time: t,
+            seq: self.seq,
+            ev,
+        });
         self.seq += 1;
     }
 

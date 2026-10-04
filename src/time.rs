@@ -33,7 +33,7 @@ pub fn ser_time(bytes: u64, rate_bps: u64) -> Time {
 /// picoseconds and serialization is a single multiplication.
 pub fn exact_ps_per_byte(rate_bps: u64) -> Option<u64> {
     let num = 8 * SEC;
-    if rate_bps > 0 && num % rate_bps == 0 {
+    if rate_bps > 0 && num.is_multiple_of(rate_bps) {
         Some(num / rate_bps)
     } else {
         None

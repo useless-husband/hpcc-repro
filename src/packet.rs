@@ -134,7 +134,11 @@ impl PacketPool {
 
     /// Iterates over packets currently alive (in queues or on wires).
     pub fn live_packets(&self) -> impl Iterator<Item = &Packet> {
-        self.slots.iter().zip(&self.live).filter(|(_, l)| **l).map(|(p, _)| p)
+        self.slots
+            .iter()
+            .zip(&self.live)
+            .filter(|(_, l)| **l)
+            .map(|(p, _)| p)
     }
 }
 

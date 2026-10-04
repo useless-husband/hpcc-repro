@@ -98,9 +98,21 @@ impl CcKind {
                 hpcc::Reaction::PerAck => "hpcc-perack".into(),
                 hpcc::Reaction::PerRtt => "hpcc-perrtt".into(),
             },
-            CcKind::Dcqcn(p) => if p.window { "dcqcn+win".into() } else { "dcqcn".into() },
+            CcKind::Dcqcn(p) => {
+                if p.window {
+                    "dcqcn+win".into()
+                } else {
+                    "dcqcn".into()
+                }
+            }
             CcKind::Dctcp(_) => "dctcp".into(),
-            CcKind::Timely(p) => if p.window { "timely+win".into() } else { "timely".into() },
+            CcKind::Timely(p) => {
+                if p.window {
+                    "timely+win".into()
+                } else {
+                    "timely".into()
+                }
+            }
         }
     }
 
@@ -123,7 +135,13 @@ pub enum CcState {
 impl CcState {
     pub fn new(kind: &CcKind, env: &FlowEnv) -> (CcState, Ctl) {
         match kind {
-            CcKind::None => (CcState::None, Ctl { rate_bps: env.line_rate_bps, win: 0 }),
+            CcKind::None => (
+                CcState::None,
+                Ctl {
+                    rate_bps: env.line_rate_bps,
+                    win: 0,
+                },
+            ),
             CcKind::Hpcc(p) => {
                 let (s, c) = hpcc::Hpcc::new(p.clone(), env);
                 (CcState::Hpcc(s), c)

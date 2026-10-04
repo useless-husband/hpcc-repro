@@ -102,6 +102,9 @@ pub struct SimConfig {
     pub trace_bin: Time,
     /// Go-back-N retransmission timeout (only armed when PFC is off).
     pub rto: Time,
+    /// Queue samples, RTT samples and PFC pause time are only accumulated
+    /// from this time on (the end of the warm-up).
+    pub stats_from: Time,
 }
 
 impl SimConfig {
@@ -127,6 +130,7 @@ impl SimConfig {
             trace_ports: Vec::new(),
             trace_bin: 10 * US,
             rto: 500 * US,
+            stats_from: 0,
         }
     }
 }
@@ -254,7 +258,13 @@ impl Sim {
         let pm = PortMap::new(topo);
         let routes = Routes::new(topo, &pm);
         let n_hosts = topo.n_hosts;
-        let nic_rate = topo.links.iter().filter(|l| topo.is_host(l.a) || topo.is_host(l.b)).map(|l| l.rate_bps).min().unwrap();
+        let nic_rate = topo
+            .links
+            .iter()
+            .filter(|l| topo.is_host(l.a) || topo.is_host(l.b))
+            .map(|l| l.rate_bps)
+            .min()
+            .unwrap();
         let mut ports = Vec::with_capacity(topo.n_nodes() as usize);
         for (node, plist) in pm.ports.iter().enumerate() {
             let is_switch = node as u32 >= n_hosts;
@@ -278,7 +288,11 @@ impl Sim {
                         paused_since: 0,
                         paused_total: 0,
                         pauses_received: 0,
-                        ecn: if is_switch { cfg.ecn.thresholds(l.rate_bps) } else { None },
+                        ecn: if is_switch {
+                            cfg.ecn.thresholds(l.rate_bps)
+                        } else {
+                            None
+                        },
                         max_data_bytes: 0,
                     }
                 })
@@ -291,7 +305,13 @@ impl Sim {
             // PFC headroom: 3 x rate x one-way delay; dynamic-threshold alpha
             // 1/8 for NIC-rate ports, doubled per doubling of the port rate
             // (authors' simulator, scratch/third.cc).
-            let headroom = plist.iter().map(|p| (p.rate_bps as u128 * p.delay as u128 * 3 / (8 * crate::time::SEC as u128)) as u64).collect();
+            let headroom = plist
+                .iter()
+                .map(|p| {
+                    (p.rate_bps as u128 * p.delay as u128 * 3 / (8 * crate::time::SEC as u128))
+                        as u64
+                })
+                .collect();
             let alpha_shift = plist
                 .iter()
                 .map(|p| {
@@ -326,7 +346,13 @@ impl Sim {
             .into_iter()
             .enumerate()
             .map(|(i, spec)| {
-                assert!(spec.src < n_hosts && spec.dst < n_hosts && spec.src != spec.dst && spec.size > 0, "bad flow {spec:?}");
+                assert!(
+                    spec.src < n_hosts
+                        && spec.dst < n_hosts
+                        && spec.src != spec.dst
+                        && spec.size > 0,
+                    "bad flow {spec:?}"
+                );
                 let measured = match cfg.measure {
                     Some((a, b)) => spec.start >= a && spec.start < b,
                     None => true,
@@ -340,7 +366,10 @@ impl Sim {
                     spec,
                     snd_nxt: 0,
                     snd_una: 0,
-                    ctl: Ctl { rate_bps: 0, win: 0 },
+                    ctl: Ctl {
+                        rate_bps: 0,
+                        win: 0,
+                    },
                     next_avail: 0,
                     last_pkt_bytes: 0,
                     cc: None,
@@ -361,7 +390,11 @@ impl Sim {
         if let Some(f) = flows.first() {
             q.schedule(f.spec.start, Ev::FlowStart);
         }
-        if let Some(iv) = cfg.queue_sample_interval.or(if cfg.trace_ports.is_empty() { None } else { Some(cfg.trace_bin) }) {
+        if let Some(iv) = cfg.queue_sample_interval.or(if cfg.trace_ports.is_empty() {
+            None
+        } else {
+            Some(cfg.trace_bin)
+        }) {
             q.schedule(iv, Ev::Sample);
         }
         let n_trace = cfg.trace_ports.len();
@@ -424,7 +457,7 @@ impl Sim {
         for plist in &mut self.ports {
             for p in plist {
                 if p.paused {
-                    p.paused_total += now - p.paused_since;
+                    p.paused_total += now.saturating_sub(p.paused_since.max(self.cfg.stats_from));
                     p.paused_since = now;
                 }
             }
@@ -480,7 +513,14 @@ impl Sim {
         let ser = p.ser(size);
         let (peer, peer_port, delay) = (p.peer, p.peer_port, p.delay);
         self.q.schedule(now + ser, Ev::TxDone { node, port });
-        self.q.schedule(now + ser + delay, Ev::Arrive { node: peer, port: peer_port, pkt });
+        self.q.schedule(
+            now + ser + delay,
+            Ev::Arrive {
+                node: peer,
+                port: peer_port,
+                pkt,
+            },
+        );
     }
 
     fn on_pfc_frame(&mut self, node: u32, port: u16, kind: Kind) {
@@ -497,7 +537,7 @@ impl Sim {
             Kind::Resume => {
                 if p.paused {
                     p.paused = false;
-                    p.paused_total += now - p.paused_since;
+                    p.paused_total += now.saturating_sub(p.paused_since.max(self.cfg.stats_from));
                 }
             }
             _ => unreachable!(),
@@ -509,7 +549,11 @@ impl Sim {
     fn start_flow(&mut self, id: u32) {
         let now = self.q.now();
         let line = self.ports[self.flows[id as usize].spec.src as usize][0].rate_bps;
-        let env = FlowEnv { line_rate_bps: line, base_rtt: self.cfg.base_rtt, mtu: self.cfg.mtu };
+        let env = FlowEnv {
+            line_rate_bps: line,
+            base_rtt: self.cfg.base_rtt,
+            mtu: self.cfg.mtu,
+        };
         let (cc, ctl) = CcState::new(&self.cfg.cc, &env);
         let f = &mut self.flows[id as usize];
         f.cc = Some(Box::new(cc));
@@ -571,7 +615,11 @@ impl Sim {
 
     fn send_data(&mut self, id: u32) {
         let now = self.q.now();
-        let int = if self.int_enabled { self.cfg.int_bytes } else { 0 };
+        let int = if self.int_enabled {
+            self.cfg.int_bytes
+        } else {
+            0
+        };
         let f = &mut self.flows[id as usize];
         let payload = (f.spec.size - f.snd_nxt).min(self.cfg.mtu as u64) as u32;
         let size = payload + self.cfg.hdr_bytes + int;
@@ -618,7 +666,11 @@ impl Sim {
 
     fn receive_data(&mut self, h: u32, pkt: u32) {
         let now = self.q.now();
-        let int = if self.int_enabled { self.cfg.int_bytes } else { 0 };
+        let int = if self.int_enabled {
+            self.cfg.int_bytes
+        } else {
+            0
+        };
         let (ack_size, nack_size) = (self.cfg.ack_bytes + int, self.cfg.ack_bytes);
         let p = self.pool.get(pkt);
         debug_assert_eq!(p.dst, h);
@@ -657,7 +709,11 @@ impl Sim {
                 // and ECN mark are copied by the receiver (HPCC Fig. 4).
                 let p = self.pool.get_mut(pkt);
                 p.kind = kind;
-                p.size = if kind == Kind::Ack { ack_size } else { nack_size };
+                p.size = if kind == Kind::Ack {
+                    ack_size
+                } else {
+                    nack_size
+                };
                 p.payload = 0;
                 p.seq = rcv_nxt;
                 p.src = h;
@@ -684,15 +740,26 @@ impl Sim {
         let p = self.pool.get(pkt);
         let f = &mut self.flows[fid as usize];
         let rtt = now - p.ts;
-        self.rtt_hist.add(rtt);
+        if now >= self.cfg.stats_from {
+            self.rtt_hist.add(rtt);
+        }
         if p.seq > f.snd_una {
             f.snd_una = p.seq;
             f.last_progress = now;
         }
-        let view = AckView { now, ack_seq: p.seq, snd_nxt: f.snd_nxt, ecn: p.ecn, hops: p.int_hops(), rtt };
+        let view = AckView {
+            now,
+            ack_seq: p.seq,
+            snd_nxt: f.snd_nxt,
+            ecn: p.ecn,
+            hops: p.int_hops(),
+            rtt,
+        };
         let old = f.ctl;
         let mut timers = TimerReqs::default();
-        f.cc.as_mut().expect("ack for a flow that never started").on_ack(&view, &mut f.ctl, &mut timers);
+        f.cc.as_mut()
+            .expect("ack for a flow that never started")
+            .on_ack(&view, &mut f.ctl, &mut timers);
         self.pool.free(pkt);
         self.after_cc_update(fid, old, &timers);
         let f = &self.flows[fid as usize];
@@ -743,7 +810,14 @@ impl Sim {
         f.timer_gen[kind as usize] = f.timer_gen[kind as usize].wrapping_add(1);
         let gen = f.timer_gen[kind as usize];
         let t = self.q.now() + delay;
-        self.q.schedule(t, Ev::Timer { flow: fid, kind, gen });
+        self.q.schedule(
+            t,
+            Ev::Timer {
+                flow: fid,
+                kind,
+                gen,
+            },
+        );
     }
 
     fn on_timer(&mut self, fid: u32, kind: u8, gen: u32) {
@@ -765,7 +839,9 @@ impl Sim {
         }
         let old = f.ctl;
         let mut timers = TimerReqs::default();
-        f.cc.as_mut().expect("timer for a flow that never started").on_timer(kind, now, &mut f.ctl, &mut timers);
+        f.cc.as_mut()
+            .expect("timer for a flow that never started")
+            .on_timer(kind, now, &mut f.ctl, &mut timers);
         let src = f.spec.src;
         self.after_cc_update(fid, old, &timers);
         self.host_try_send(src);
@@ -793,7 +869,11 @@ impl Sim {
             self.measured_left -= 1;
         }
         let hs = &mut self.hosts[f.spec.src as usize];
-        let pos = hs.active.iter().position(|&x| x == fid).expect("finished flow not active");
+        let pos = hs
+            .active
+            .iter()
+            .position(|&x| x == fid)
+            .expect("finished flow not active");
         hs.active.remove(pos);
         if hs.rr > pos {
             hs.rr -= 1;
@@ -827,7 +907,9 @@ impl Sim {
             }
             Kind::Data => {
                 let si = (s - self.n_hosts) as usize;
-                let out = self.routes.pick(s, p.dst, p.hash, self.switches[si].ecmp_seed);
+                let out = self
+                    .routes
+                    .pick(s, p.dst, p.hash, self.switches[si].ecmp_seed);
                 let size = p.size as u64;
                 let mmu = &mut self.switches[si].mmu;
                 if mmu.admit(in_port as usize, size) == Admit::Dropped {
@@ -855,7 +937,9 @@ impl Sim {
     }
 
     fn send_pfc(&mut self, s: u32, port: u16, kind: Kind) {
-        let pkt = self.pool.alloc(Packet::control(kind, self.cfg.pfc_frame_bytes));
+        let pkt = self
+            .pool
+            .alloc(Packet::control(kind, self.cfg.pfc_frame_bytes));
         match kind {
             Kind::Pause => self.counters.pause_frames += 1,
             _ => self.counters.resume_frames += 1,
@@ -880,7 +964,9 @@ impl Sim {
         if port.paused {
             return;
         }
-        let Some(pkt) = port.data_q.pop_front() else { return };
+        let Some(pkt) = port.data_q.pop_front() else {
+            return;
+        };
         let p = self.pool.get_mut(pkt);
         let size = p.size as u64;
         port.data_bytes -= size;
@@ -905,8 +991,12 @@ impl Sim {
         }
         // INT: stamp the egress port's state as the packet leaves (Fig. 7).
         if self.int_enabled && (p.n_hops as usize) < MAX_HOPS {
-            p.hops[p.n_hops as usize] =
-                IntHop { ts: now, tx_bytes: port.tx_bytes, qlen: port.data_bytes + port.ctrl_bytes, rate_bps: port.rate_bps };
+            p.hops[p.n_hops as usize] = IntHop {
+                ts: now,
+                tx_bytes: port.tx_bytes,
+                qlen: port.data_bytes + port.ctrl_bytes,
+                rate_bps: port.rate_bps,
+            };
             p.n_hops += 1;
         }
         let resume = sw.mmu.should_resume(in_port);
@@ -923,7 +1013,7 @@ impl Sim {
 
     fn sample(&mut self) {
         let now = self.q.now();
-        if self.cfg.queue_sample_interval.is_some() {
+        if self.cfg.queue_sample_interval.is_some() && now >= self.cfg.stats_from {
             for s in self.n_hosts as usize..self.ports.len() {
                 for p in &self.ports[s] {
                     self.queue_hist.add(p.data_bytes);
@@ -945,7 +1035,14 @@ impl Sim {
         let f = &self.flows[fid as usize];
         let fwd = self.path(f.spec.src, f.spec.dst, f.hash);
         let rev = self.path(f.spec.dst, f.spec.src, f.ack_hash);
-        ideal_fct(f.spec.size, self.cfg.mtu, self.cfg.hdr_bytes, self.cfg.ack_bytes, &fwd, &rev)
+        ideal_fct(
+            f.spec.size,
+            self.cfg.mtu,
+            self.cfg.hdr_bytes,
+            self.cfg.ack_bytes,
+            &fwd,
+            &rev,
+        )
     }
 
     /// Links (rate, delay) on the ECMP path a packet with `hash` takes.
@@ -969,7 +1066,12 @@ impl Sim {
     /// Byte conservation: every data byte injected by a host is either
     /// delivered to a host, dropped by a switch, or still in the network.
     pub fn check_conservation(&self) -> Result<(), String> {
-        let in_net: u64 = self.pool.live_packets().filter(|p| p.kind == Kind::Data).map(|p| p.size as u64).sum();
+        let in_net: u64 = self
+            .pool
+            .live_packets()
+            .filter(|p| p.kind == Kind::Data)
+            .map(|p| p.size as u64)
+            .sum();
         let c = &self.counters;
         if c.data_bytes_injected != c.data_bytes_received + c.dropped_bytes + in_net {
             return Err(format!(
@@ -979,10 +1081,18 @@ impl Sim {
         }
         // Every switch's buffer accounting matches its queues.
         for (si, sw) in self.switches.iter().enumerate() {
-            sw.mmu.check_invariants().map_err(|e| format!("switch {si}: {e}"))?;
-            let queued: u64 = self.ports[self.n_hosts as usize + si].iter().map(|p| p.data_bytes).sum();
+            sw.mmu
+                .check_invariants()
+                .map_err(|e| format!("switch {si}: {e}"))?;
+            let queued: u64 = self.ports[self.n_hosts as usize + si]
+                .iter()
+                .map(|p| p.data_bytes)
+                .sum();
             if queued != sw.mmu.total_buffered() {
-                return Err(format!("switch {si}: queues hold {queued} B but MMU accounts {}", sw.mmu.total_buffered()));
+                return Err(format!(
+                    "switch {si}: queues hold {queued} B but MMU accounts {}",
+                    sw.mmu.total_buffered()
+                ));
             }
         }
         Ok(())
@@ -1006,11 +1116,16 @@ impl Sim {
     }
 
     pub fn switch_mmu_headroom_peak_ok(&self) -> bool {
-        self.switches.iter().all(|s| s.mmu.check_invariants().is_ok())
+        self.switches
+            .iter()
+            .all(|s| s.mmu.check_invariants().is_ok())
     }
 
     pub fn n_switch_ports(&self) -> usize {
-        self.ports[self.n_hosts as usize..].iter().map(|p| p.len()).sum()
+        self.ports[self.n_hosts as usize..]
+            .iter()
+            .map(|p| p.len())
+            .sum()
     }
 
     pub fn n_hosts(&self) -> u32 {
@@ -1019,7 +1134,10 @@ impl Sim {
 
     /// (measured flows, measured flows still unfinished).
     pub fn measured_counts(&self) -> (usize, usize) {
-        (self.flows.iter().filter(|f| f.measured).count(), self.measured_left)
+        (
+            self.flows.iter().filter(|f| f.measured).count(),
+            self.measured_left,
+        )
     }
 
     pub fn live_packets(&self) -> usize {
@@ -1028,7 +1146,14 @@ impl Sim {
 }
 
 /// See [`Sim::ideal_fct`].
-pub fn ideal_fct(size: u64, mtu: u32, hdr: u32, ack: u32, fwd: &[(u64, Time)], rev: &[(u64, Time)]) -> Time {
+pub fn ideal_fct(
+    size: u64,
+    mtu: u32,
+    hdr: u32,
+    ack: u32,
+    fwd: &[(u64, Time)],
+    rev: &[(u64, Time)],
+) -> Time {
     let mut free_f = vec![0 as Time; fwd.len()];
     let mut free_r = vec![0 as Time; rev.len()];
     let mut sent = 0u64;
