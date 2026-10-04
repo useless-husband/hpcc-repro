@@ -14,12 +14,12 @@ checks those claims figure by figure.
 
 | Paper claim | Paper | This reproduction (`make repro`) |
 |---|---|---|
-| 95th-pct RTT of HPCC, FB_Hadoop 50% load (Fig. 11d) | 19.8 us | **19.8 us** (same for 3 seeds) |
-| HPCC vs DCTCP tail RTT | "more than 2x" lower | 1.85x lower (36.7 us vs 19.8 us) |
-| PFC pauses, 30% load + incast (Fig. 11b) | only DCQCN and TIMELY | only DCQCN (13 175 pause frames) and TIMELY (23 350); 0 for HPCC, DCTCP, DCQCN+win, TIMELY+win |
-| 95th-pct slowdown, flows <= 120 KB, 30% + incast (Fig. 11a) | HPCC lowest | HPCC 1.65, DCTCP 2.44, DCQCN+win 2.67, TIMELY+win 2.71, DCQCN 56.6, TIMELY 95.5 |
-| 99th-pct slowdown, flows < 3 KB, WebSearch 50% (Fig. 10) | HPCC 2.70 vs DCQCN 53.9 (testbed) | HPCC 1.89 vs DCQCN 11.1 (simulated FatTree) |
-| Long flows slower with HPCC at 50% load (§5.3) | ~1.24x (analytical) | 1.07x at the median, 1.52x at the 95th pct (1.15x with maxStage = 0) |
+| 95th-pct RTT of HPCC, FB_Hadoop 50% load (Fig. 11d) | 19.8 us | **21.6 us** (3 seeds); 19.8 us if ACKs skip the data queues |
+| HPCC vs DCTCP tail RTT | "more than 2x" lower | 1.93x lower (41.7 us vs 21.6 us) |
+| PFC pauses, 30% load + incast (Fig. 11b) | only DCQCN and TIMELY; "almost zero" with a window | DCQCN 30 132 and TIMELY 38 280 pause frames; TIMELY+win 20; HPCC, DCTCP, DCQCN+win 0 |
+| 95th-pct slowdown, flows <= 120 KB, 30% + incast (Fig. 11a) | HPCC lowest | HPCC 1.85, DCTCP 3.01, DCQCN+win 3.68, TIMELY+win 3.77, DCQCN 102, TIMELY 135 |
+| 99th-pct slowdown, flows < 3 KB, WebSearch 50% (Fig. 10) | HPCC 2.70 vs DCQCN 53.9 (testbed) | HPCC 1.92 vs DCQCN 15.5 (simulated FatTree) |
+| Long flows slower with HPCC at 50% load (§5.3) | ~1.24x (analytical) | 0.99x at the median, 1.44x at the 95th pct (1.08x with maxStage = 0) |
 | W_AI <= 150 B keeps the 95th-pct queue within 4 KB; 300 B gives 13 KB (Fig. 14) | 4 KB / 13 KB | 4.4 KB / 12.0 KB |
 | Per-ACK overreacts, per-RTT is slow, HPCC is both fast and stable (Fig. 13) | qualitative | per-ACK goodput falls to 0 Gbps; per-RTT queue lasts 190 us vs 108 us for HPCC |
 
@@ -35,9 +35,9 @@ Two runs of the scaled-down (32-host) FatTree with FB_Hadoop at 30% load plus 60
 
 ```
 $ ./target/release/hpcc-sim fct --cc hpcc --workload fbhadoop --load 0.3 --incast --small --out results/demo-hpcc
-experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true warmup_ps=1000000000 measure_ps=5000000000 cc=hpcc seed=1 pfc=true wai=default max_stage=default: 9025 flows done, sim 9.051 ms, 20196897 events in 1.0 s, drops 0, pause frames 0, host pause 0.0 us, switch pause 0.0 us, rtt p95 22.4 us
+experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true warmup_ps=1000000000 measure_ps=5000000000 cc=hpcc seed=1 pfc=true wai=default max_stage=default acks=data-class: 9137 flows done, sim 9.178 ms, 20433708 events in 1.0 s, drops 0, pause frames 0, host pause 0.0 us, switch pause 0.0 us, rtt p95 25.0 us
 $ ./target/release/hpcc-sim fct --cc dcqcn --workload fbhadoop --load 0.3 --incast --small --out results/demo-dcqcn
-experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true warmup_ps=1000000000 measure_ps=5000000000 cc=dcqcn seed=1 pfc=true wai=default max_stage=default: 8405 flows done, sim 8.457 ms, 19131687 events in 1.1 s, drops 0, pause frames 16, host pause 110.1 us, switch pause 59.6 us, rtt p95 490.7 us
+experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true warmup_ps=1000000000 measure_ps=5000000000 cc=dcqcn seed=1 pfc=true wai=default max_stage=default acks=data-class: 8049 flows done, sim 8.092 ms, 18201755 events in 1.0 s, drops 0, pause frames 16, host pause 112.7 us, switch pause 57.4 us, rtt p95 620.8 us
 ```
 
 Each run writes `fct.csv` (every flow's FCT and exact ideal FCT), `summary.json`, queue and RTT histograms into
@@ -76,12 +76,13 @@ Figures 10 and 11 were reproduced at the paper's full simulation scale (320 host
 paper's small micro-benchmark setups (Figures 9 and 10 were testbed experiments in the paper and are simulated
 here). Summary of verdicts from [docs/report.md](docs/report.md):
 
-* **Matches:** HPCC's short-flow advantage (Fig. 10, 11), PFC pauses only without a window (Fig. 11b), HPCC's
-  95th-percentile RTT (19.8 us), reaction variants (Fig. 13), W_AI threshold (Fig. 14), long-short recovery,
+* **Matches:** HPCC's short-flow advantage (Fig. 10, 11), PFC pauses only without a window and almost none with
+  one (Fig. 11b), HPCC's low tail RTT, reaction variants (Fig. 13), W_AI threshold (Fig. 14), long-short recovery,
   incast reaction and fairness (Fig. 9).
-* **Partly:** the long-flow penalty (larger at the 95th percentile than the paper's estimate unless maxStage = 0);
-  DCQCN's tails in Fig. 10 and its mice latency in Fig. 9e are less extreme than on the paper's testbed; DCTCP's
-  tail RTT is 1.85x HPCC's rather than more than 2x.
+* **Partly:** HPCC's 95th-percentile RTT is 21.6 us vs the paper's 19.8 us (exactly 19.8 us if ACKs skip the data
+  queues; the paper does not define its latency metric); the long-flow penalty is larger at the 95th percentile
+  than the paper's estimate unless maxStage = 0; DCQCN's tails in Fig. 10 and its mice latency in Fig. 9e are less
+  extreme than on the paper's testbed; DCTCP's tail RTT is 1.93x HPCC's rather than more than 2x.
 * **Not reproduced:** Figure 12 (IRN is not implemented), Figures 1-3 and 6.
 
 ### Cross-check against the authors' simulator
@@ -89,64 +90,70 @@ here). Summary of verdicts from [docs/report.md](docs/report.md):
 The authors' ns-3 simulator ([alibaba-edu/High-Precision-Congestion-Control](https://github.com/alibaba-edu/High-Precision-Congestion-Control))
 uses waf 1.7, which needs Python 2. `tools/build_official_ns3.py` compiles the ten ns-3 modules it needs directly
 with clang++ (20 s on 4 cores; their code is cloned to a scratch directory and never committed). Both simulators
-were then run on the *same* 32-host topology and the *same* 23 175 FB_Hadoop flows at 50% load
-(`hpcc-sim fct ... --export-ns3 DIR`, then `tools/crosscheck_ns3.py`), with the paper's HPCC parameters
-(maxStage 5, W_AI about 80 B) and the vendor DCQCN parameters. Slowdowns of the 4 944 flows starting in
-[1 ms, 4 ms), both scored against the same exact ideal FCT:
+were run on the *same* 32-host topology and the *same* 23 175 FB_Hadoop flows at 50% load
+(`hpcc-sim fct ... --export-ns3 DIR`; `hpcc-sim ns3` also reads their input format directly), with the paper's
+HPCC parameters and the authors' `run.py` values for the others. Slowdowns of the ~4 945 flows starting in
+[1 ms, 4 ms), all scored against the same exact ideal FCT (median / 95th / 99th percentile):
 
-| | median: ours / theirs | 95th pct: ours / theirs | 99th pct: ours / theirs |
+| | authors' simulator | this simulator (seed 1) | per-bin deviation vs own seed spread |
 |---|---|---|---|
-| HPCC, all flows | 1.05 / 1.12 | 3.50 / 3.64 | 7.05 / 7.55 |
-| HPCC, smallest-size bin | 1.03 / 1.03 | 1.88 / 2.20 | 3.21 / 3.29 |
-| HPCC, largest-size bin | 2.74 / 2.81 | 8.91 / 10.17 | 18.45 / 17.74 |
-| DCQCN, all flows | 1.13 / 1.66 | 7.34 / 10.74 | 14.45 / 20.14 |
-| DCQCN, smallest-size bin | 1.03 / 1.24 | 8.69 / 14.74 | 20.80 / 27.85 |
+| HPCC | 1.12 / 3.64 / 7.55 | 1.14 / 3.69 / 7.36 | 3.8% vs 3.2% |
+| DCQCN | 1.66 / 10.74 / 20.14 | 1.73 / 10.73 / 19.85 | 4.9% vs 9.0% |
+| DCTCP | 1.65 / 5.34 / 8.28 | 1.71 / 5.60 / 8.46 | 4.1% vs 2.5% |
+| TIMELY | 1.66 / 18.93 / 43.33 | 1.64 / 18.29 / 45.68 | 2.5% vs 13.2% |
 
-HPCC agrees closely: per size bin the medians are within 3%, the 95th percentiles are 3-23% lower here (in every
-bin) and the 99th percentiles are within -26% to +7%. For DCQCN this simulator is more optimistic: the authors'
-simulator shows higher medians for flows up to 160 KB (1.15-1.97 vs 1.02-1.62) and 1.2-1.9x higher 95th
-percentiles; only the largest flows agree. Their DCQCN runs with more standing queue. The cause was not identified within the time box; candidates are the NIC's packet scheduling and
-pacing updates and the egress scheduling of the control class in their switch model. The DCQCN-vs-HPCC
-conclusions only get stronger with their numbers, but absolute DCQCN values in this repository should be read with
-this gap in mind.
+All four agree to within a few percent, about the size of this simulator's own seed-to-seed variation. They did
+not at first: DCQCN's tails were 1.2-1.9x higher in the authors' simulator. Diffing the two DCQCN implementations
+mechanism by mechanism found them equivalent, and the switch queues of both simulators were statistically the same,
+so the delay had to be outside the forward queues. A packet trace of their simulator showed ACKs waiting in the
+**data** queue at switches. Their `scratch/third.cc` applies `ACK_HIGH_PRIO` only to host NICs, and the switches'
+`AckHighPrio` attribute keeps its default of 0. Their config documentation says "1: prioritize ACK", so this looks
+unintended, but it is how their results were produced. This simulator originally gave ACKs a high-priority class.
+It now defaults to the authors' behaviour and keeps the original as `--acks-high-priority`, which `make repro`
+runs as a sensitivity case: DCQCN's short-flow 95th percentile at 50% load is 5.6 with priority ACKs vs 8.2 without,
+and every qualitative conclusion holds under both. Details: [docs/DESIGN.md](docs/DESIGN.md) §7 and
+[docs/report.md](docs/report.md) §6.
 
 ### Runtime
 
-`make repro` runs 39 simulations (the paper's 320-host FatTree for Figures 10 and 11) and draws the figures in
-**6.5 minutes** of wall time with 4 parallel jobs on an Apple M5 (10 cores, shared with other jobs while measured).
-Running it twice gives bit-identical results: a second complete run reproduced every number in
-`docs/results-numbers.json` and every SVG byte for byte. One full-scale run takes
-20-130 s; the simulator processes about 13 million events per second on one core (`make bench`), with about 130 MB
+`make repro` runs 41 simulations (the paper's 320-host FatTree for Figures 10 and 11) and draws the figures in
+**7.7 minutes** of wall time with 4 parallel jobs on an Apple M5 (10 cores, shared with other jobs while measured).
+Results are bit-identical between runs and between arm64 and x86-64 builds (checked under Rosetta 2). One full-scale run takes
+20-150 s; the simulator processes about 13 million events per second on one core (`make bench`), with about 130 MB
 of memory per full-scale run. `make quick` (32-host tree, shorter windows) takes about 15 s.
 
 ## Validation
 
-The simulator is tested separately from the algorithms it runs (`cargo test --release`, 71 tests):
+The simulator is tested separately from the algorithms it runs (`cargo test --release`, 75 tests):
 
 * **Timing**: a single packet's latency equals the hand-computed value; lone flows of awkward sizes on four
   topologies finish exactly, to the picosecond, at the analytic store-and-forward FCT used as the slowdown baseline.
 * **Buffers and PFC**: 600 000 random MMU operations with invariant checks after each; pause exactly at the
   threshold and resume exactly 3 KB below it; no drop ever with PFC on (including PFC spreading through three
-  switches); with PFC off, drops occur and go-back-N recovers.
+  switches); with PFC off, drops occur (including dropped ACKs) and go-back-N recovers.
 * **Byte conservation** (injected = delivered + dropped + in flight) at many points of 12 randomised runs.
 * **ECMP**: deterministic, even spread, uses every tuple field. **Event queue**: FIFO ties, randomised model check.
 * **Algorithms**: unit tests for each CC; on the network, lone long flows reach line rate (HPCC within a few percent of
   the rate predicted from eta and the INT overhead), four flows converge to a fair share for all six schemes, DCTCP holds its queue near K, a sending
   window stops DCQCN from triggering PFC, HPCC sees a bottleneck five switches away.
-* **Determinism**: same seed, same output; golden digests recorded on macOS/arm64 are checked in CI on Linux/x86-64.
-* **Mutation check**: 16 deliberate one-line bugs (HPCC reading the queue length of the wrong hop, PFC off by one
+* **ACK model**: ACKs in the data class wait behind data, those in the control class do not.
+* **Determinism**: same seed, same output; no libm, fused multiply-add, hash maps or unstable sorts in the model (a
+  test enforces it); golden digests are identical on arm64 and x86-64 and are rechecked in CI on Linux.
+* **Mutation check**: 19 deliberate one-line bugs (HPCC reading the queue length of the wrong hop, PFC off by one
   byte, ECN threshold not scaled, ...) must each break the suite: [docs/mutants.md](docs/mutants.md).
 
 ## Limitations
 
 * No NIC/PCIe processing delay, ACK coalescing, PFC pause quanta (explicit XOFF/XON instead), multiple lossless
   classes, link failures, IRN, or HPCC-PINT.
-* ACKs always travel in a high-priority class (the authors' code puts HPCC and DCTCP ACKs in the data queue).
+* ACKs share the data queue in switches, as in the authors' simulator (see the cross-check); the other choice is a
+  command-line option.
 * Measurement windows are 5-10 ms of arrivals (50 000-83 000 flows for FB_Hadoop, 7 000-12 000 for WebSearch), so
   the 99th percentiles of WebSearch's size bins rest on 7-12 flows.
 * The paper's pause-fraction and queue-length populations are not precisely defined; the definitions used here are
   stated on the results page.
-* DCQCN differs numerically from the authors' simulator (see the cross-check above).
+* Only one configuration (32 hosts, FB_Hadoop 50%) was cross-checked against the authors' simulator; the
+  320-host runs were not repeated there.
 
 ## Related work
 
@@ -174,10 +181,10 @@ matplotlib, installed into `.venv` by the Makefile), `make`.
 
 ```
 make build      # release build of target/release/hpcc-sim
-make test       # 71 tests: unit, network-model validation, CC behaviour, golden digests
+make test       # 75 tests: unit, network-model validation, CC behaviour, portability, golden digests
 make lint       # rustfmt, clippy -D warnings, Python syntax
 make quick      # 32-host experiment set + figures + results/quick/index.html (~15 s)
-make repro      # full experiment set at paper scale + docs/figures + docs/results.html (~6.5 min, 4 jobs)
+make repro      # full experiment set at paper scale + docs/figures + docs/results.html (~8 min, 4 jobs)
 make bench      # one fixed full-scale run, prints events/s
 make mutants    # mutation check, rewrites docs/mutants.md (~7 min)
 ```

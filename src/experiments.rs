@@ -181,6 +181,14 @@ impl FctExperiment {
                     .map(|w| w.to_string())
                     .unwrap_or_else(|| "default".into()),
             ),
+            (
+                "acks",
+                if self.acks_high_priority {
+                    "high-priority".into()
+                } else {
+                    "data-class".into()
+                },
+            ),
         ]
     }
 }

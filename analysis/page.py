@@ -108,10 +108,47 @@ def bins_table(case_nums, key="p95"):
     return table(head, rows)
 
 
+def _sentence(t):
+    """Upper-case the first letter only (str.capitalize would lower-case HPCC)."""
+    return t[:1].upper() + t[1:] + "."
+
+
+def _mean(v):
+    return sum(v) / len(v) if v else float("nan")
+
+
+def fig11_facts(F, extras):
+    """Data-derived statements used by the Figure 11 prose."""
+    out = {}
+    for case in F:
+        c = F[case]
+        others = [cc for cc in ORDER if cc in c and cc != "hpcc"]
+        if "hpcc" not in c or not others:
+            continue
+        nb = len(c["hpcc"]["bins"])
+        short_bins = [i for i in range(nb) if c["hpcc"]["bins"][i]["max_size"] <= 125_000]
+        out[case + "_hpcc_lowest_short"] = all(
+            c["hpcc"]["bins"][i]["p95"] < min(c[o]["bins"][i]["p95"] for o in others) for i in short_bins)
+        last = {cc: c[cc]["bins"][-1] for cc in ORDER if cc in c}
+        out[case + "_hpcc_slowest_long"] = max(last, key=lambda k: last[k]["p95"]) == "hpcc"
+        out[case + "_long_p50_ratio"] = last["hpcc"]["p50"] / _mean([last[o]["p50"] for o in ["dcqcn", "dcqcn+win", "dctcp"] if o in last])
+        out[case + "_long_p95_ratio"] = last["hpcc"]["p95"] / _mean([last[o]["p95"] for o in others])
+        out[case + "_others_long_p95"] = (min(last[o]["p95"] for o in others), max(last[o]["p95"] for o in others))
+        out[case + "_hpcc_long"] = (last["hpcc"]["p50"], last["hpcc"]["p95"])
+    ms0 = extras.get("sens-fb50-hpcc-maxstage0")
+    if ms0 and "fb50" in F:
+        others = [cc for cc in ORDER if cc in F["fb50"] and cc != "hpcc"]
+        out["ms0_long_p95"] = ms0["bins"][-1]["p95"]
+        out["ms0_long_p95_ratio"] = ms0["bins"][-1]["p95"] / _mean([F["fb50"][o]["bins"][-1]["p95"] for o in others])
+        out["ms0_small_p95"] = ms0["bins"][0]["p95"]
+    return out
+
+
 def section_fig11(n, figrel, label):
     if "fig11" not in n:
         return ""
     F = n["fig11"]
+    facts = fig11_facts(F, n.get("extras", {}))
     out = ['<h2 id="fig11">Figure 11: FB_Hadoop on the FatTree</h2>']
     out.append(fig(f"{figrel}/fig11_fct.svg", "95th percentile FCT slowdown per flow-size bin",
                    "95th-percentile FCT slowdown per flow-size bin (10 bins with equal flow counts, labelled by the "
@@ -121,44 +158,49 @@ def section_fig11(n, figrel, label):
         if case not in F:
             continue
         c = F[case]
-        bits = []
-        for cc in ORDER:
-            if cc in c and c[cc]["p95_short_le_120k"] is not None:
-                bits.append(f"{LABEL[cc]} {c[cc]['p95_short_le_120k']:.2f}")
+        bits = [f"{LABEL[cc]} {c[cc]['p95_short_le_120k']:.2f}" for cc in ORDER if cc in c and c[cc]["p95_short_le_120k"] is not None]
         s.append(f"<b>{title}</b>, 95th-percentile slowdown of all flows &le; 120 KB: " + ", ".join(bits) + ".")
-    long50 = ""
-    if "fb50" in F and "hpcc" in F["fb50"]:
-        h = F["fb50"]["hpcc"]["bins"][-1]["p50"]
-        others = [F["fb50"][cc]["bins"][-1]["p50"] for cc in ["dcqcn", "dcqcn+win", "dctcp"] if cc in F["fb50"]]
-        if others:
-            ratio = h / (sum(others) / len(others))
-            long50 = (f" In the largest-flow bin at 50% load the median slowdown is {h:.2f} for HPCC versus "
-                      f"{sum(others) / len(others):.2f} on average for DCQCN, DCQCN+win and DCTCP (ratio {ratio:.2f}).")
+    if "fb50_long_p50_ratio" in facts:
+        h50, h95 = facts["fb50_hpcc_long"]
+        lo, hi = facts["fb50_others_long_p95"]
+        s.append(f"Largest-flow bin at 50% load: HPCC median {h50:.2f} ({facts['fb50_long_p50_ratio']:.2f}x the mean of "
+                 f"DCQCN, DCQCN+win and DCTCP), 95th percentile {h95:.2f} versus {lo:.2f}-{hi:.2f} for the others "
+                 f"({facts['fb50_long_p95_ratio']:.2f}x their mean).")
+    lowest = [t for case, t in [("fb30inc", "30% + incast"), ("fb50", "50%")] if facts.get(case + "_hpcc_lowest_short")]
+    matches = []
+    if lowest:
+        matches.append("HPCC has the lowest 95th-percentile slowdown in every size bin up to 120 KB at " + " and ".join(lowest) + " load")
+    matches.append("plain DCQCN and TIMELY are worst, by far with incast; adding a window helps both; DCTCP sits between "
+                   "the windowed schemes and HPCC, as the paper explains (its window limits in-flight bytes)")
+    if facts.get("fb50_hpcc_slowest_long"):
+        matches.append("at 50% load HPCC is the slowest scheme for the largest flows")
+    differs = ""
+    if "fb50_long_p95_ratio" in facts:
+        differs = (f"The long-flow penalty at 50% load is {facts['fb50_long_p50_ratio']:.2f}x at the median and "
+                   f"{facts['fb50_long_p95_ratio']:.2f}x at the 95th percentile, against the paper's analytical 1.24x.")
+        if "ms0_long_p95_ratio" in facts:
+            differs += (f" With maxStage = 0 (the default in the authors' run.py; the paper's text says 5) the "
+                        f"95th-percentile ratio is {facts['ms0_long_p95_ratio']:.2f}x, at the cost of slightly slower short "
+                        f"flows (smallest bin {facts['ms0_small_p95']:.2f} vs {F['fb50']['hpcc']['bins'][0]['p95']:.2f}).")
     out.append(compare(
         "Figure 11a/c: for flows shorter than 120 KB (90% of FB_Hadoop flows) HPCC has a much lower 95th-percentile "
         "slowdown than DCQCN, TIMELY, their windowed variants and DCTCP, at 30% load + incast and at 50% load. Long "
         "flows are slower with HPCC (it leaves 5% headroom and pays INT bytes); the paper estimates 1.24x at 50% load.",
-        " ".join(s) + long50,
-        "HPCC has the lowest 95th-percentile slowdown in every bin up to 120 KB in both cases; plain DCQCN and "
-        "TIMELY are worst (very much so with incast); adding a window helps both; DCTCP sits between the windowed "
-        "schemes and HPCC, as the paper explains (its window limits in-flight bytes). At 50% load HPCC is the "
-        "slowest scheme for the largest flows.",
-        "The long-flow penalty at 50% load is 1.07x at the median but 1.52x at the 95th percentile (largest bin, "
-        "versus the mean of the other schemes), against the paper's analytical 1.24x. With maxStage = 0 (the "
-        "default in the authors' run.py; the paper's text says 5) the 95th-percentile gap shrinks to 1.15x, see "
-        "the sensitivity table at the end of the page.",
+        " ".join(s),
+        "; ".join(matches) + ".",
+        differs,
         "With maxStage = 5 a long flow that starts on a busy link waits six RTTs between multiplicative increases "
-        "and grows by only W_AI = 80 B per RTT meanwhile, so it reclaims bandwidth slowly; the absolute slowdowns "
-        "also depend on the 5 ms measurement windows and on modelling choices listed in docs/DESIGN.md.",
+        "and grows by only W_AI = 80 B per RTT meanwhile, so it reclaims bandwidth slowly. Absolute slowdowns also "
+        "depend on the 5 ms measurement windows and the modelling choices in docs/DESIGN.md.",
         "matches"))
     out.append("<h3>95th-percentile slowdown per bin (table view)</h3>")
     for case, title in [("fb30inc", "30% load + incast"), ("fb50", "50% load")]:
         if case in F:
             out.append(f"<p>{title}</p>" + bins_table(F[case]))
-    # PFC + latency
     out.append(fig(f"{figrel}/fig11_pfc_latency.svg", "PFC pause time and 95th percentile RTT",
                    "Top: share of time the lossless class was paused, over all host NIC ports and switch ports, after "
-                   "warm-up. Bottom: 95th-percentile per-packet RTT measured at the sender."))
+                   "warm-up. Bottom: 95th-percentile per-packet RTT measured at the sender (ACKs share the data queue "
+                   "in switches, as in the authors' simulator)."))
     rows = []
     for case, title in [("fb30inc", "30%+incast"), ("fb50", "50%")]:
         if case not in F:
@@ -169,33 +211,48 @@ def section_fig11(n, figrel, label):
                 rows.append([title, LABEL[cc], f"{100 * c['pause_frac_all_ports']:.3f}", f"{100 * c['pause_frac_hosts']:.3f}",
                              f"{c['pause_frames']:.0f}", f"{c['rtt_p95_us']:.1f}", f"{c['rtt_p99_us']:.1f}", f"{c['drops']:.0f}",
                              f"{c['measured_flows']:.0f}", f"{c['measured_unfinished']:.0f}"])
-    rtt = ""
+    ours = []
+    ratio = None
     if "fb50" in F and "hpcc" in F["fb50"]:
         h = F["fb50"]["hpcc"]["rtt_p95_us"]
+        ours.append(f"HPCC's 95th-percentile RTT at 50% load is {h:.1f} us")
         d = F["fb50"].get("dctcp", {}).get("rtt_p95_us")
-        rtt = f"HPCC's 95th-percentile RTT at 50% load is {h:.1f} us"
         if d:
-            rtt += f"; DCTCP's is {d:.1f} us ({d / h:.1f}x)"
-        rtt += ". "
-    paused = []
+            ratio = d / h
+            ours[-1] += f"; DCTCP's is {d:.1f} us ({ratio:.2f}x)"
+        hi = n.get("extras", {}).get("sens-fb50-hpcc-ackhigh")
+        if hi:
+            ours[-1] += f" (with ACKs in a high-priority class HPCC's would be {hi['rtt_p95_us']:.1f} us)"
     if "fb30inc" in F:
-        for cc in ORDER:
-            if cc in F["fb30inc"]:
-                paused.append(f"{LABEL[cc]} {F['fb30inc'][cc]['pause_frames']:.0f}")
+        c = F["fb30inc"]
+        ours.append("PFC pause frames with incast: " + ", ".join(f"{LABEL[cc]} {c[cc]['pause_frames']:.0f}" for cc in ORDER if cc in c))
+        windowed = [c[cc]["pause_frames"] for cc in ["dcqcn+win", "timely+win", "dctcp", "hpcc"] if cc in c]
+        plain = [c[cc]["pause_frames"] for cc in ["dcqcn", "timely"] if cc in c]
+    else:
+        windowed, plain = [], []
+    m = []
+    if windowed and plain and max(windowed) * 100 < min(plain):
+        m.append("large PFC pauses appear only for the window-less rate-based schemes; with a window they all but "
+                 "disappear (at most " + f"{max(windowed):.0f}" + " pause frames)")
+    m.append("DCQCN and TIMELY tail RTTs with incast are in the millisecond range, HPCC's stay near the base RTT")
+    differs = []
+    if "fb50" in F and "hpcc" in F["fb50"]:
+        differs.append(f"HPCC's 95th-percentile RTT is {F['fb50']['hpcc']['rtt_p95_us']:.1f} us rather than 19.8 us")
+    if ratio is not None and ratio < 2:
+        differs.append(f"DCTCP's tail RTT is {ratio:.2f}x HPCC's, slightly short of 'more than 2 times'")
+    differs.append("the paused fraction of port-time is not comparable with the paper's bars because the paper does "
+                   "not define its denominator")
     out.append(compare(
         "Figure 11b/d: large-scale PFC pauses appear only with DCQCN and TIMELY; adding a sending window "
         "(DCQCN+win, TIMELY+win) reduces them to almost zero; HPCC's 95th-percentile latency is 19.8 us at 50% "
         "load (base RTT 12 us) and DCTCP's is more than 2x higher; DCQCN/TIMELY latency is around a millisecond "
         "with incast.",
-        rtt + "PFC pause frames with incast: " + ", ".join(paused) + ".",
-        "Pauses happen only for the window-less rate-based schemes; every windowed scheme and HPCC never trigger "
-        "PFC; HPCC's tail RTT is within a few us of the paper's 19.8 us; DCQCN/TIMELY tail RTTs with incast are in "
-        "the millisecond range.",
-        "The paper plots the paused fraction on a 0-20% axis; the 1-2.5% here is at the low end. DCTCP's tail RTT "
-        "is 1.85x HPCC's, slightly short of the paper's 'more than 2 times'.",
-        "The paper does not define the denominator of its pause fraction (which ports, which period); this page "
-        "averages over every host and switch port after warm-up. The qualitative claim (only window-less schemes "
-        "pause) does not depend on the definition.",
+        ". ".join(ours) + ".",
+        "; ".join(m) + ".",
+        _sentence("; ".join(differs)),
+        "The paper does not say exactly what its latency metric includes; here it is the per-packet RTT at the sender, "
+        "which includes the ACK's wait in the reverse path's data queue. The pause fraction here averages over every "
+        "host and switch port after warm-up.",
         "matches"))
     out.append(table(["case", "algorithm", "paused % (all ports)", "paused % (hosts)", "pause frames",
                       "RTT p95 (us)", "RTT p99 (us)", "drops", "measured flows", "unfinished"], rows, numeric_from=2))
@@ -212,6 +269,7 @@ def section_fig10(n, figrel):
                    "Bottom: CDF of switch egress queue samples (every 10 us, all switch ports), top 20% shown."))
     txt = []
     rows = []
+    med_gap = {}
     for l in ["ws30", "ws50"]:
         if l not in F:
             continue
@@ -222,19 +280,32 @@ def section_fig10(n, figrel):
                              kb(c["queue_p95"]), kb(c["queue_p99"]), kb(c["queue_p999"]), f"{100 * c['queue_nonzero_frac']:.1f}"])
         if "hpcc" in F[l] and "dcqcn" in F[l]:
             h, d = F[l]["hpcc"], F[l]["dcqcn"]
+            small = [(a, b) for a, b in zip(h["bins"], d["bins"]) if a["max_size"] <= 250_000]
+            med_gap[l] = max(b["p50"] / a["p50"] - 1 for a, b in small) if small else 0
             txt.append(f"At {l[2:]}% load the 99th-percentile slowdown of flows under 3 KB is {f(h['p99_under_3kb'], 2)} "
-                       f"(HPCC) vs {f(d['p99_under_3kb'], 2)} (DCQCN); 99th-percentile queue {kb(h['queue_p99'])} vs "
-                       f"{kb(d['queue_p99'])}.")
+                       f"(HPCC) vs {f(d['p99_under_3kb'], 2)} (DCQCN); for flows up to ~200 KB DCQCN's medians are at most "
+                       f"{100 * med_gap[l]:.0f}% above HPCC's; "
+                       f"95th/99th-percentile queue {kb(h['queue_p95'])}/{kb(h['queue_p99'])} vs {kb(d['queue_p95'])}/{kb(d['queue_p99'])}.")
+    differs = []
+    if "ws50" in F and "dcqcn" in F["ws50"]:
+        differs.append(f"the DCQCN tail for tiny flows at 50% load ({F['ws50']['dcqcn']['p99_under_3kb']:.1f}) is less "
+                       "extreme than the testbed's 53.9")
+        h = F["ws50"].get("hpcc")
+        if h:
+            differs.append(f"HPCC's 95th-percentile queue ({kb(h['queue_p95'])}) is below the testbed's 19.7 KB but its "
+                           f"99th ({kb(h['queue_p99'])}) is above 22.9 KB")
+    if med_gap.get("ws50", 0) > 0.1:
+        differs.append(f"at 50% load DCQCN's medians for flows up to ~200 KB are up to {100 * med_gap['ws50']:.0f}% "
+                       "higher than HPCC's, so 'similar medians' holds only roughly")
     out.append(compare(
         "Figure 10 (testbed, 25G NICs): HPCC and DCQCN have similar median slowdowns but HPCC is much better at the "
         "95th/99th percentile, especially for short flows: 99th-percentile slowdown for flows under 3 KB drops "
         "from 11.2 to 2.38 at 30% load and from 53.9 to 2.70 at 50% load. Median queue is 0 for both; at 50% load "
         "HPCC's 95th/99th-percentile queues are 19.7/22.9 KB versus 1.1/2.1 MB for DCQCN.",
         " ".join(txt),
-        "Similar medians; HPCC much better in the tail for short flows; queues near zero with HPCC and in the MB "
+        "HPCC much better in the tail for short flows; queues near zero with HPCC and in the hundreds of KB to MB "
         "range for DCQCN; median queue 0 for both.",
-        "The DCQCN tail for tiny flows is less extreme than the testbed's 53.9. HPCC's 95th-percentile queue is "
-        "lower than the testbed's 19.7 KB but its 99th percentile is higher than 22.9 KB.",
+        _sentence("; ".join(differs)) if differs else "-",
         "This is a simulation of the paper's 100G FatTree, not the 25G testbed: the bandwidth-delay product is about "
         "6x larger (162 KB), so line-rate starts of new flows collide in larger bursts (in BDP units HPCC's 99th "
         "percentile is lower than the testbed's); queue samples here include every switch port, most of them idle; "
@@ -343,8 +414,9 @@ def section_fig9(n, figrel):
             f"Median mouse completion time: HPCC {h.get('latency_p50_us', 0):.1f} us, DCQCN {d.get('latency_p50_us', 0):.1f} us; "
             f"median queue {h.get('queue_p50_kb', 0):.1f} KB vs {d.get('queue_p50_kb', 0):.0f} KB.",
             "Mice at the base RTT with HPCC and an empty median queue; much higher and more variable latency with DCQCN.",
-            "DCQCN's median mouse latency is below the paper's 'consistently higher than 35 us': its queue "
-            "saw-tooths between 0 and ~180 KB instead of sitting at the 100 KB marking threshold.",
+            (f"DCQCN's median mouse latency ({d.get('latency_p50_us', 0):.0f} us) is below the paper's 'consistently "
+             "higher than 35 us': its queue saw-tooths between 0 and ~180 KB instead of sitting at the 100 KB marking "
+             "threshold." if d.get("latency_p50_us", 99) < 35 else "-"),
             "The timer-only vendor DCQCN model used here (from the authors' simulator) is not the testbed NIC firmware; "
             "the base RTT here is ~4.9 us, not 5.4 us.", "partly"))
     if "fairshare" in F:

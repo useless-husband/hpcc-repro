@@ -12,12 +12,12 @@ FatTree 拓樸與流量（和作者的 ns-3 模擬器沒有共用任何程式碼
 
 | 論文的說法 | 論文 | 本專案（`make repro`） |
 |---|---|---|
-| HPCC 的 95 百分位 RTT，FB_Hadoop 50% 負載（圖 11d） | 19.8 us | **19.8 us**（3 個亂數種子都一樣） |
-| HPCC 與 DCTCP 尾端 RTT 比較 | 低「兩倍以上」 | 低 1.85 倍（36.7 us 對 19.8 us） |
-| 30% 負載 + incast 時的 PFC 暫停（圖 11b） | 只有 DCQCN、TIMELY 會有 | 只有 DCQCN（13 175 個暫停訊框）與 TIMELY（23 350）；HPCC、DCTCP、DCQCN+win、TIMELY+win 都是 0 |
-| 120 KB 以下流量的 95 百分位減速倍數，30% + incast（圖 11a） | HPCC 最低 | HPCC 1.65、DCTCP 2.44、DCQCN+win 2.67、TIMELY+win 2.71、DCQCN 56.6、TIMELY 95.5 |
-| 3 KB 以下流量的 99 百分位減速倍數，WebSearch 50%（圖 10） | HPCC 2.70 對 DCQCN 53.9（實體測試床） | HPCC 1.89 對 DCQCN 11.1（模擬的 FatTree） |
-| 50% 負載時長流量用 HPCC 比較慢（§5.3） | 約 1.24 倍（理論估計） | 中位數 1.07 倍、95 百分位 1.52 倍（maxStage = 0 時 1.15 倍） |
+| HPCC 的 95 百分位 RTT，FB_Hadoop 50% 負載（圖 11d） | 19.8 us | **21.6 us**（3 個亂數種子）；如果 ACK 不排在資料佇列裡則剛好 19.8 us |
+| HPCC 與 DCTCP 尾端 RTT 比較 | 低「兩倍以上」 | 低 1.93 倍（41.7 us 對 21.6 us） |
+| 30% 負載 + incast 時的 PFC 暫停（圖 11b） | 只有 DCQCN、TIMELY 會有；加上視窗後「幾乎為零」 | DCQCN 30 132、TIMELY 38 280 個暫停訊框；TIMELY+win 20；HPCC、DCTCP、DCQCN+win 都是 0 |
+| 120 KB 以下流量的 95 百分位減速倍數，30% + incast（圖 11a） | HPCC 最低 | HPCC 1.85、DCTCP 3.01、DCQCN+win 3.68、TIMELY+win 3.77、DCQCN 102、TIMELY 135 |
+| 3 KB 以下流量的 99 百分位減速倍數，WebSearch 50%（圖 10） | HPCC 2.70 對 DCQCN 53.9（實體測試床） | HPCC 1.92 對 DCQCN 15.5（模擬的 FatTree） |
+| 50% 負載時長流量用 HPCC 比較慢（§5.3） | 約 1.24 倍（理論估計） | 中位數 0.99 倍、95 百分位 1.44 倍（maxStage = 0 時 1.08 倍） |
 | W_AI <= 150 B 時 95 百分位佇列在 4 KB 內；300 B 時 13 KB（圖 14） | 4 KB / 13 KB | 4.4 KB / 12.0 KB |
 | 每個 ACK 都反應會過度反應、每個 RTT 反應一次太慢，HPCC 又快又穩（圖 13） | 定性描述 | per-ACK 的吞吐量掉到 0 Gbps；per-RTT 的佇列持續到 190 us，HPCC 108 us 就清空 |
 
@@ -33,9 +33,9 @@ FatTree 拓樸與流量（和作者的 ns-3 模擬器沒有共用任何程式碼
 
 ```
 $ ./target/release/hpcc-sim fct --cc hpcc --workload fbhadoop --load 0.3 --incast --small --out results/demo-hpcc
-experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true warmup_ps=1000000000 measure_ps=5000000000 cc=hpcc seed=1 pfc=true wai=default max_stage=default: 9025 flows done, sim 9.051 ms, 20196897 events in 1.0 s, drops 0, pause frames 0, host pause 0.0 us, switch pause 0.0 us, rtt p95 22.4 us
+experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true warmup_ps=1000000000 measure_ps=5000000000 cc=hpcc seed=1 pfc=true wai=default max_stage=default acks=data-class: 9137 flows done, sim 9.178 ms, 20433708 events in 1.0 s, drops 0, pause frames 0, host pause 0.0 us, switch pause 0.0 us, rtt p95 25.0 us
 $ ./target/release/hpcc-sim fct --cc dcqcn --workload fbhadoop --load 0.3 --incast --small --out results/demo-dcqcn
-experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true warmup_ps=1000000000 measure_ps=5000000000 cc=dcqcn seed=1 pfc=true wai=default max_stage=default: 8405 flows done, sim 8.457 ms, 19131687 events in 1.1 s, drops 0, pause frames 16, host pause 110.1 us, switch pause 59.6 us, rtt p95 490.7 us
+experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true warmup_ps=1000000000 measure_ps=5000000000 cc=dcqcn seed=1 pfc=true wai=default max_stage=default acks=data-class: 8049 flows done, sim 8.092 ms, 18201755 events in 1.0 s, drops 0, pause frames 16, host pause 112.7 us, switch pause 57.4 us, rtt p95 620.8 us
 ```
 
 每次執行會在 `--out` 資料夾寫出 `fct.csv`（每個流量的完成時間與精確的理想完成時間）、`summary.json`、
@@ -73,10 +73,11 @@ experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true
 （圖 9 和 10 在論文裡是實體測試床，這裡用模擬）。
 [docs/report.md](docs/report.md) 的結論摘要：
 
-* **吻合**：HPCC 對短流量的優勢（圖 10、11）、只有沒有視窗的方法會觸發 PFC（圖 11b）、HPCC 的 95 百分位 RTT
-  （19.8 us）、反應方式的比較（圖 13）、W_AI 門檻（圖 14）、長短流恢復、incast 反應與公平性（圖 9）。
-* **部分吻合**：長流量的代價（95 百分位比論文估計大，除非 maxStage = 0）；圖 10 的 DCQCN 尾端與圖 9e 的
-  DCQCN 小流量延遲沒有測試床那麼極端；DCTCP 的尾端 RTT 是 HPCC 的 1.85 倍而不是兩倍以上。
+* **吻合**：HPCC 對短流量的優勢（圖 10、11）、只有沒有視窗的方法會觸發大量 PFC，加上視窗後幾乎沒有（圖 11b）、
+  HPCC 的低尾端 RTT、反應方式的比較（圖 13）、W_AI 門檻（圖 14）、長短流恢復、incast 反應與公平性（圖 9）。
+* **部分吻合**：HPCC 的 95 百分位 RTT 是 21.6 us，論文是 19.8 us（如果 ACK 不在資料佇列排隊則剛好 19.8 us；論文沒有
+  定義它的延遲指標）；長流量的代價（95 百分位比論文估計大，除非 maxStage = 0）；圖 10 的 DCQCN 尾端與圖 9e 的
+  DCQCN 小流量延遲沒有測試床那麼極端；DCTCP 的尾端 RTT 是 HPCC 的 1.93 倍而不是兩倍以上。
 * **沒有重現**：圖 12（沒有實作 IRN）、圖 1-3 與圖 6。
 
 ### 和作者模擬器的交叉驗證
@@ -84,57 +85,61 @@ experiment=fct topology=fattree-small-32 workload=FB_Hadoop load=0.3 incast=true
 作者的 ns-3 模擬器（[alibaba-edu/High-Precision-Congestion-Control](https://github.com/alibaba-edu/High-Precision-Congestion-Control)）
 用的 waf 1.7 需要 Python 2。`tools/build_official_ns3.py` 直接用 clang++ 編譯它需要的十個 ns-3 模組（4 核心
 20 秒；作者的程式碼只複製到暫存資料夾，從不加入本專案）。接著讓兩個模擬器跑**同一個** 32 台主機拓樸、
-**同一批** 23 175 個 FB_Hadoop 50% 負載的流量（`hpcc-sim fct ... --export-ns3 DIR`，再用
-`tools/crosscheck_ns3.py` 比較），HPCC 用論文參數（maxStage 5、W_AI 約 80 B），DCQCN 用廠商參數。
-以下是在 [1 ms, 4 ms) 開始的 4 944 個流量，兩邊都用同一個精確理想完成時間計算減速倍數：
+**同一批** 23 175 個 FB_Hadoop 50% 負載的流量（`hpcc-sim fct ... --export-ns3 DIR`；`hpcc-sim ns3` 也能直接讀他們的
+輸入格式），HPCC 用論文參數，其他方法用作者 `run.py` 的值。以下是在 [1 ms, 4 ms) 開始的約 4 945 個流量，兩邊都用
+同一個精確理想完成時間計算減速倍數（中位數 / 95 / 99 百分位）：
 
-| | 中位數：本專案 / 作者 | 95 百分位：本專案 / 作者 | 99 百分位：本專案 / 作者 |
+| | 作者的模擬器 | 本專案（種子 1） | 每區間偏差 對 本專案自己換種子的差異 |
 |---|---|---|---|
-| HPCC，全部流量 | 1.05 / 1.12 | 3.50 / 3.64 | 7.05 / 7.55 |
-| HPCC，最小的流量區間 | 1.03 / 1.03 | 1.88 / 2.20 | 3.21 / 3.29 |
-| HPCC，最大的流量區間 | 2.74 / 2.81 | 8.91 / 10.17 | 18.45 / 17.74 |
-| DCQCN，全部流量 | 1.13 / 1.66 | 7.34 / 10.74 | 14.45 / 20.14 |
-| DCQCN，最小的流量區間 | 1.03 / 1.24 | 8.69 / 14.74 | 20.80 / 27.85 |
+| HPCC | 1.12 / 3.64 / 7.55 | 1.14 / 3.69 / 7.36 | 3.8% 對 3.2% |
+| DCQCN | 1.66 / 10.74 / 20.14 | 1.73 / 10.73 / 19.85 | 4.9% 對 9.0% |
+| DCTCP | 1.65 / 5.34 / 8.28 | 1.71 / 5.60 / 8.46 | 4.1% 對 2.5% |
+| TIMELY | 1.66 / 18.93 / 43.33 | 1.64 / 18.29 / 45.68 | 2.5% 對 13.2% |
 
-HPCC 非常接近：每個大小區間的中位數差 3% 以內，95 百分位本專案在每個區間都低 3-23%，99 百分位差在 -26% 到 +7%
-之間。DCQCN 則是本專案比較樂觀：在作者的模擬器裡，160 KB 以下流量的中位數較高（1.15-1.97 對 1.02-1.62），
-95 百分位高 1.2-1.9 倍，只有最大的流量一致，表示他們的 DCQCN 維持了更多排隊。在限定時間內沒有找到確切原因，可能來自網卡的
-封包排程與控速更新方式，或交換器控制佇列的排程方式。用作者的數字，「HPCC 優於 DCQCN」的結論只會更明顯，
-但本專案 DCQCN 的絕對數值要帶著這個差距來看。
+四種方法都只差幾個百分比，大約就是本專案換亂數種子本身的差異。一開始並不是這樣：作者模擬器裡 DCQCN 的尾端
+高了 1.2-1.9 倍。逐項比對兩邊的 DCQCN 實作都一樣，兩邊交換器的佇列長度統計也一樣，所以多出來的延遲一定不在
+去程的佇列裡。追蹤作者模擬器的封包紀錄後發現：交換器把 ACK 放在**資料**佇列裡排隊。原因是作者的
+`scratch/third.cc` 只把 `ACK_HIGH_PRIO` 設定套用到主機網卡，交換器的 `AckHighPrio` 屬性一直維持預設值 0。
+他們的設定說明寫「1: prioritize ACK」，看起來並非原意，但論文的結果就是這樣跑出來的。本專案原本讓 ACK 走
+高優先權；現在預設改成和作者的模擬器相同，原本的模型保留為 `--acks-high-priority`，`make repro` 會把它當成
+敏感度分析一起跑：50% 負載時 DCQCN 短流量的 95 百分位，ACK 走高優先權是 5.6、和資料一起排隊是 8.2，兩種設定下
+所有定性結論都一樣。詳見 [docs/DESIGN.md](docs/DESIGN.md) §7 與 [docs/report.md](docs/report.md) §6。
 
 ### 執行時間
 
-`make repro` 跑 39 次模擬（圖 10、11 用論文的 320 台主機 FatTree）並畫圖，在 Apple M5（10 核心，量測時有其他
-工作同時在跑）上用 4 個平行工作花 **6.5 分鐘**。跑兩次結果逐位元相同：第二次完整執行重現了
-`docs/results-numbers.json` 裡的每一個數字和每一張 SVG。單次完整規模模擬 20-130 秒；模擬器單核心每秒處理約 1300 萬個事件
+`make repro` 跑 41 次模擬（圖 10、11 用論文的 320 台主機 FatTree）並畫圖，在 Apple M5（10 核心，量測時有其他
+工作同時在跑）上用 4 個平行工作花 **7.7 分鐘**。結果每次執行逐位元相同，arm64 和 x86-64 版本（用 Rosetta 2
+執行）的輸出也完全相同。單次完整規模模擬 20-150 秒；模擬器單核心每秒處理約 1300 萬個事件
 （`make bench`），每次完整規模模擬約用 130 MB 記憶體。`make quick`（32 台主機、較短的時間窗）約 15 秒。
 
 ## 驗證
 
-模擬器本身和它執行的演算法分開測試（`cargo test --release`，共 71 個測試）：
+模擬器本身和它執行的演算法分開測試（`cargo test --release`，共 75 個測試）：
 
 * **時間**：單一封包的延遲等於手算值；四種拓樸上、各種奇怪大小的單一流量，完成時間和當作減速倍數分母的
   理論值完全相同（精確到皮秒）。
 * **緩衝區與 PFC**：60 萬次隨機緩衝區操作，每一步都檢查不變量；剛好到門檻就暫停、低於門檻 3 KB 才恢復；
-  開 PFC 時從不掉封包（包含 PFC 經過三台交換器往回傳）；關掉 PFC 時會掉封包，go-back-N 能補回。
+  開 PFC 時從不掉封包（包含 PFC 經過三台交換器往回傳）；關掉 PFC 時會掉封包（包含 ACK），go-back-N 能補回。
 * **位元組守恆**（送出 = 收到 + 丟棄 + 還在網路中）：12 次隨機模擬中的許多時間點都檢查。
 * **ECMP**：結果固定、分散平均、用到 5-tuple 的每個欄位。**事件佇列**：同時事件先進先出、隨機比對參考模型。
 * **演算法**：每個壅塞控制都有單元測試；在網路上，單一長流量能跑滿線速（HPCC 和依 eta 與 INT 開銷算出的速度相差幾個百分比以內）、
   六種方法的四個流量都會收斂到公平分享、DCTCP 把佇列維持在 K 附近、加上視窗能讓 DCQCN 不觸發 PFC、HPCC 看得到
   五台交換器外的瓶頸。
-* **決定性**：同一個種子同一個結果；在 macOS/arm64 記錄的 golden digest 會在 CI 的 Linux/x86-64 上檢查。
-* **突變測試**：16 個故意放進去的一行錯誤（例如 HPCC 讀錯跳的佇列長度、PFC 差一個位元組、ECN 門檻沒有隨速度
+* **ACK 模型**：ACK 在資料類別時會排在資料後面，在控制類別時不會。
+* **決定性**：同一個種子同一個結果；模型裡不准用 libm 數學函式、融合乘加、雜湊表或不穩定排序（有測試強制檢查）；
+  golden digest 在 arm64 和 x86-64 上完全相同，CI 會在 Linux 上再檢查一次。
+* **突變測試**：19 個故意放進去的一行錯誤（例如 HPCC 讀錯跳的佇列長度、PFC 差一個位元組、ECN 門檻沒有隨速度
   調整），每一個都必須讓測試失敗：[docs/mutants.md](docs/mutants.md)。
 
 ## 限制
 
 * 沒有模擬網卡/PCIe 處理延遲、ACK 合併、PFC 暫停時間單位（改用明確的暫停/恢復訊框）、多個無損類別、
   線路故障、IRN、HPCC-PINT。
-* ACK 一律走高優先權佇列（作者的程式碼裡 HPCC 和 DCTCP 的 ACK 走資料佇列）。
+* ACK 在交換器裡和資料共用佇列，和作者的模擬器一樣（見交叉驗證）；另一種做法是命令列選項。
 * 量測時間窗是 5-10 ms 的到達流量（FB_Hadoop 5 萬到 8.3 萬個流量，WebSearch 7 千到 1.2 萬個），所以 WebSearch
   每個大小區間的 99 百分位只靠 7 到 12 個流量決定。
 * 論文對 PFC 暫停比例和佇列取樣範圍沒有精確定義，本專案使用的定義寫在結果網頁上。
-* DCQCN 的數值和作者的模擬器有差距（見上面的交叉驗證）。
+* 只有一種設定（32 台主機、FB_Hadoop 50%）和作者的模擬器交叉驗證過；320 台主機的實驗沒有在作者的模擬器上重跑。
 
 ## 相關研究
 
@@ -160,10 +165,10 @@ HPCC 非常接近：每個大小區間的中位數差 3% 以內，95 百分位�
 
 ```
 make build      # 編譯 target/release/hpcc-sim
-make test       # 71 個測試：單元、網路模型驗證、壅塞控制行為、golden digest
+make test       # 75 個測試：單元、網路模型驗證、壅塞控制行為、可攜性、golden digest
 make lint       # rustfmt、clippy -D warnings、Python 語法
 make quick      # 32 台主機實驗 + 圖 + results/quick/index.html（約 15 秒）
-make repro      # 論文規模完整實驗 + docs/figures + docs/results.html（約 6.5 分鐘，4 個平行工作）
+make repro      # 論文規模完整實驗 + docs/figures + docs/results.html（約 8 分鐘，4 個平行工作）
 make bench      # 一次固定的完整規模模擬，印出每秒事件數
 make mutants    # 突變測試，重寫 docs/mutants.md（約 7 分鐘）
 ```

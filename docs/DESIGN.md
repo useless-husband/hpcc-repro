@@ -95,7 +95,8 @@ ECN thresholds 100/400 KB x Bw/25G, DCTCP K = 30 KB x Bw/10G, PFC at about 11% o
 | TIMELY | parameters of [31] | updates once per RTT | same |
 | PFC threshold | 11% of free buffer | dynamic threshold, alpha = 1/8 at NIC speed, x2 per doubling of port speed | same |
 | PFC headroom | not stated | 3 x rate x link delay per port | same |
-| ACK priority | not stated | high priority for DCQCN/TIMELY, data queue for HPCC/DCTCP | high priority for all |
+| ACK queue in switches | not stated | data queue for every CC (`ACK_HIGH_PRIO` reaches only the host NICs, see §7) | data queue (`AckClass::SharedWithData`); a high-priority class is a sensitivity option |
+| ACK at the host NIC | not stated | sent before data; paused by PFC only if `ACK_HIGH_PRIO` = 0 (HPCC, DCTCP) | same |
 | Data packet | not stated | 1000 B payload, 48 B headers | same; +42 B INT for HPCC |
 | ACK | not stated | 60 B (+INT) | 60 B (+42 B INT for HPCC) |
 | Slowdown baseline | "FCT when the network only has this flow" | base RTT + bytes / bandwidth | exact store-and-forward FCT of a lone flow (below) |
@@ -127,15 +128,34 @@ run stops when all of them have finished (or at a hard limit). Flows still unfin
 dropped from the statistics: they are counted with their elapsed time as a lower bound on their FCT, and their number
 is reported on the results page. Queue, RTT and pause statistics are collected only after the warm-up.
 
-### 5. Determinism
+### 5. Determinism, on every platform
 
-* Event ties are broken by scheduling order (FIFO), never by heap layout.
-* Random numbers come from xoshiro256** (checked against the reference implementation's published outputs), with
+Identical seeds must give identical output, and the golden digests pinned on macOS/arm64 must also hold on the
+Linux/x86-64 CI runner. The argument, by construction:
+
+* **Only exactly-rounded arithmetic.** IEEE-754 `+ - * /`, comparisons, `ceil`, `min`/`max` and integer<->float
+  conversions are specified bit-exactly and give the same result on every conforming CPU. x86-64 uses SSE2 (no x87
+  extended precision), and Rust never contracts `a*b+c` into a fused multiply-add unless `mul_add` is called.
+* **No libm.** Transcendental functions (`ln`, `exp`, `pow`, ...) are not correctly rounded and differ between
+  macOS's libm and glibc in the last bit. The only one the model needs, the logarithm for exponential inter-arrival
+  times, is `rng::det_ln`, built from `+ - * /` and bit manipulation.
+* **No unordered iteration.** No hash maps or hash sets; all sorts are stable; simultaneous events run in
+  scheduling order (FIFO tie-break), never in heap-layout order.
+* **Own random numbers.** xoshiro256** (checked against the reference implementation's published outputs), with
   separate streams per purpose (workload, incast, each switch's ECN coin flips, ECMP seeds).
-* The exponential distribution uses a logarithm built only from `+ - * /` (`rng::det_ln`), because the platform
-  `ln` may differ in the last bit between macOS and Linux.
-* The test `golden_digest` hashes the FCTs and counters of four small runs and compares them with constants
-  recorded on macOS/arm64; CI recomputes them on Linux/x86-64.
+* **Wall-clock time** is only used to report how long a run took, never inside the model.
+
+Enforcement and evidence:
+
+* `tests/portability.rs` scans the simulator sources and fails if a libm transcendental call, `mul_add`, a hash map
+  or an unstable sort appears in non-test code, and pins the exact bit patterns of `det_ln` for five inputs.
+* `golden_digest` hashes the FCTs and counters of four small runs (HPCC, DCQCN, DCTCP, TIMELY) and compares them with
+  constants recorded on arm64.
+* The same tests were built for `x86_64-apple-darwin` and run under Rosetta 2 on the development machine: identical
+  digests and identical `det_ln` bits. A complete FatTree run (`fct.csv`, queue and RTT histograms, summary) was also
+  byte-identical between the arm64 and x86-64 binaries. Linux itself was not available locally; since the model
+  calls no C library math, the only platform-dependent part (instruction selection and float codegen) is what the
+  x86-64 run exercises, and CI recomputes the digests on Linux.
 
 ### 6. Speed
 
@@ -147,6 +167,45 @@ is reported on the results page. Queue, RTT and pause statistics are collected o
 
 The result is about 13 M events/s single-threaded (`make bench`), with peak memory of about 130 MB for a full-scale
 run.
+
+### 7. Matching the authors' simulator, mechanism by mechanism
+
+The first cross-check against the authors' ns-3 simulator (identical topology and flows, see the README) agreed
+for HPCC but not for DCQCN: their 95th-percentile slowdowns of short flows were 1.2-1.9x higher. The DCQCN
+implementations were then compared item by item:
+
+| Mechanism | Authors' simulator | This simulator |
+|---|---|---|
+| Rate increase | 300 us timer only (no byte counter), F = 1, AI 20 / HAI 200 Mbps | same |
+| Alpha | 1 us timer, g = 1/256, alpha = 1 at the first CNP | same |
+| CNP | ECN echo on every ACK of a marked packet, per QP; at most one decrease per Td = 4 us | same |
+| Rates | start at line rate; min 1 Gbps; rate on first CNP x1.0; target not clamped in fast recovery | same |
+| ECN | RED at dequeue on the port's data-queue bytes; 400/1600 KB at 100G, 1600/6400 KB at 400G, Pmax 0.2 | same |
+| PFC and buffer | 32 MB; alpha 1/8 (100G), 1/2 (400G); headroom 3 x rate x delay; 4 KB reserve; 3 KB resume offset | same |
+| NIC | round robin over QPs; next send = now + size / rate | same |
+| Pacing after a rate change | DCQCN timers assign the rate without re-timing the pending send | the pending send is re-timed (as their HPCC path does) |
+| Time resolution | integer nanoseconds; a lone 1 MB flow at 100G finishes in 87.09 us instead of the exact 87.93 us (about 83 ns per 1048-byte packet instead of 83.84 ns), so long transfers run ~1% fast | integer picoseconds, exact |
+| **ACKs in switches** | **data queue, for every CC** | **was: high-priority class** |
+
+Every item but the last three rows is equivalent, and simple scenarios matched closely: two- and eight-sender
+incasts (FCTs within 6%), a single elephant with single-packet probes on the sender, receiver or ACK path (probe
+latencies within 2%), and two elephants with mice (mice latency tails within 3%). On a 16-host star with FB_Hadoop traffic the gap
+reappeared even though the switches' time-averaged queue lengths were the same in both simulators (within 1.2% in
+total, per port within run-to-run variation). So the extra delay was not in the forward queues. A packet trace of
+their simulator (`ENABLE_TRACE 1`, their `trace_reader`) then showed ACKs enqueued in the *data* queue (index 3) at
+switches, behind 1.1 MB of data, even with `ACK_HIGH_PRIO 1`. The cause is in `scratch/third.cc`: the config value
+only sets `RdmaEgressQueue::ack_q_idx` on hosts, while `SwitchNode`'s `AckHighPrio` attribute (default 0, checked in
+`SwitchNode::SendToDev`) is never set. Their `config_doc.txt` describes the knob as "1: prioritize ACK", so the
+switch side looks like an unwired setting rather than a deliberate model, but it is the behaviour that produced their
+results. With ACKs queued behind data the FCT of a short flow includes the reverse path's queue, and DCQCN's
+CNP-carrying ACKs return later, which is exactly a DCQCN-sized effect (big queues) and an HPCC-sized non-effect
+(near-zero queues).
+
+The ACK class is now a model option (`sim::AckClass`) that defaults to the authors' effective behaviour, because
+the goal is to reproduce the paper's evaluation; the old model is kept as `--acks-high-priority` and run as a
+sensitivity case in `make repro`. Making ACKs droppable (when PFC is off) also exposed two liveness bugs in the
+go-back-N path - duplicates were not re-acknowledged, and a late ACK after a rewind could leave `snd_nxt` behind
+`snd_una` - which are fixed and covered by a regression test and two mutants.
 
 ## Trade-offs that were rejected
 
