@@ -149,6 +149,7 @@ def main():
     copy_repo(base)
     rc, failed, _ = run_tests(base, target)
     if rc != 0:
+        shutil.rmtree(tmp)
         sys.exit(f"baseline test suite fails, fix that first: {failed}")
     rows = []
     survivors = 0
@@ -158,6 +159,7 @@ def main():
         f = os.path.join(work, path)
         src = open(f).read()
         if src.count(old) != 1:
+            shutil.rmtree(tmp)
             sys.exit(f"mutant {name}: fragment found {src.count(old)} times in {path}")
         open(f, "w").write(src.replace(old, new))
         t0 = time.time()
