@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 - 2026-10-05
+
+- ACKs now wait in the data queue at switches by default, matching the effective behaviour of the authors' ns-3
+  simulator (its `ACK_HIGH_PRIO` setting only reaches host NICs). This was the cause of the DCQCN gap in the first
+  cross-check; HPCC, DCQCN, DCTCP and TIMELY now agree with the authors' simulator within about seed-to-seed
+  variation. The previous model is available as `--acks-high-priority` and runs as a sensitivity case.
+- Fixed two go-back-N liveness bugs that dropped ACKs exposed: duplicates are re-acknowledged, and a late ACK after
+  a rewind no longer leaves `snd_nxt` behind `snd_una`.
+- `hpcc-sim ns3` runs scenarios given in the authors' input format; cross-check configs for all four algorithms.
+- Portability: a test forbids platform-dependent float operations, hash maps and unstable sorts in the model;
+  golden digests verified identical on arm64 and x86-64.
+- All results, figures and documents regenerated.
+
 ## 0.1.0 - 2026-10-04
 
 First complete version.

@@ -1,6 +1,6 @@
 [package]
 name = "hpcc-sim"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "Packet-level datacenter network simulator reproducing the HPCC (SIGCOMM 2019) evaluation"

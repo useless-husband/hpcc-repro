@@ -145,7 +145,7 @@ fn pfc_prevents_all_drops_under_line_rate_incast() {
     cfg.flows = flows;
     let mut sim = Sim::new(cfg);
     let mut t = 0;
-    while !sim.run_until(t) {
+    while t <= sim.cfg.stop_time.min(5_000 * MS) && !sim.run_until(t) {
         sim.check_conservation()
             .unwrap_or_else(|e| panic!("t={t}: {e}"));
         t += 20 * US;
@@ -179,7 +179,7 @@ fn without_pfc_the_same_incast_drops_and_go_back_n_recovers() {
     cfg.stop_time = 2_000 * MS; // a liveness bug must fail, not hang
     let mut sim = Sim::new(cfg);
     let mut t = 0;
-    while !sim.run_until(t) {
+    while t <= sim.cfg.stop_time.min(5_000 * MS) && !sim.run_until(t) {
         sim.check_conservation()
             .unwrap_or_else(|e| panic!("t={t}: {e}"));
         t += 50 * US;
@@ -239,10 +239,12 @@ fn byte_conservation_randomised() {
         cfg.pfc = seed % 4 != 3;
         cfg.buffer_bytes = 2 << 20;
         cfg.flows = poisson(n, &FB_HADOOP, 0.6, gbps(100), 2 * MS, &mut rng);
-        cfg.stop_time = 60 * MS;
+        // Lossy runs recover by go-back-N with a 500 us timeout and can take
+        // tens of ms; the bound only turns a liveness bug into a failure.
+        cfg.stop_time = 1_000 * MS;
         let mut sim = Sim::new(cfg);
         let mut t = 0;
-        while !sim.run_until(t) {
+        while t <= sim.cfg.stop_time.min(5_000 * MS) && !sim.run_until(t) {
             if let Err(e) = sim.check_conservation() {
                 panic!("seed {seed} ({cc_name}) t={t}: {e}");
             }

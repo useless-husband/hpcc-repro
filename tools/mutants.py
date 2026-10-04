@@ -12,6 +12,7 @@ import argparse
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -119,13 +120,17 @@ def copy_repo(dst):
 
 def run_tests(work, target):
     env = dict(os.environ, CARGO_TARGET_DIR=target)
+    # Own process group, so that a timeout also kills the test binaries cargo started.
+    proc = subprocess.Popen(["cargo", "test", "--release", "-j", "4", "--no-fail-fast"], cwd=work, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
     try:
-        p = subprocess.run(["cargo", "test", "--release", "-j", "4", "--no-fail-fast"], cwd=work, env=env,
-                           capture_output=True, text=True, timeout=900)
+        out, _ = proc.communicate(timeout=300)
     except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
         # A mutant that makes the suite hang is detected, but say so.
-        return 1, ["(suite timed out after 900 s)"], False
-    out = p.stdout + p.stderr
+        return 1, ["(suite timed out after 300 s)"], False
+    p = proc
     failed = sorted(set(re.findall(r"^test (\S+) \.\.\. FAILED", out, re.M)))
     compile_error = "error[E" in out or "error: could not compile" in out
     return p.returncode, failed, compile_error
