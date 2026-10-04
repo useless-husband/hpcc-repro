@@ -7,7 +7,7 @@ for study; it proposes nothing new.*
 Frank Kelly, Mohammad Alizadeh, Minlan Yu. "HPCC: High Precision Congestion Control." ACM SIGCOMM 2019. Part of
 Yuliang Li's Harvard PhD dissertation "Hardware-Software Codesign for High-Performance Cloud Networks".
 
-**Artifacts here.** About 5 600 lines of Rust written from scratch (simulator, algorithms and tests in `src/` and
+**Artifacts here.** About 5 700 lines of Rust written from scratch (simulator, algorithms and tests in `src/` and
 `tests/`), the experiment matrix and figure scripts (`analysis/`), the generated figures (`docs/figures/`), all
 numbers (`docs/results-numbers.json`) and a results page (`docs/results.html`). Every number in this report comes
 from `make repro` on an Apple M5 (shared with other jobs), seed 1 unless stated.
