@@ -153,7 +153,13 @@ def main():
             out.write("| Mutant | File | Bug | Result | Failing tests |\n|---|---|---|---|---|\n")
             for name, path, what, verdict, detail in rows:
                 out.write(f"| `{name}` | `{path}` | {what} | {verdict} | {detail} |\n")
-            out.write(f"\n{len(rows) - survivors} of {len(rows)} mutants killed.\n")
+            only_golden = [r[0] for r in rows if r[3] == "killed" and r[4] == "golden_digest"]
+            out.write(f"\n{len(rows) - survivors} of {len(rows)} mutants killed. `golden_digest` fails on any change of "
+                      "simulated behaviour, so it is not counted as a targeted kill; ")
+            if only_golden:
+                out.write("mutants killed only by it: " + ", ".join(f"`{m}`" for m in only_golden) + ".\n")
+            else:
+                out.write("every mutant is also killed by at least one targeted test.\n")
     print(f"{len(rows) - survivors}/{len(rows)} killed")
     sys.exit(1 if survivors else 0)
 

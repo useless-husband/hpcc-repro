@@ -584,7 +584,8 @@ def main():
         json.dump(nums, f, indent=1, sort_keys=True)
     rel = os.path.relpath(a.figures, os.path.dirname(os.path.abspath(a.html)))
     with open(a.html, "w") as f:
-        f.write(render_page(nums, rel, a.label))
+        docs = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
+        f.write(render_page(nums, rel, a.label, os.path.relpath(docs, os.path.dirname(os.path.abspath(a.html)))))
     print(f"figures: {sorted(os.listdir(a.figures))}")
     print(f"wrote {a.html} and {a.numbers}")
 

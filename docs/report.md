@@ -219,11 +219,40 @@ instead of 1 s.
   The WebSearch bins hold 700-1 200 flows each, so their 99th percentiles rest on 7-12 flows.
 * **Definitions**: the paper's pause fraction and queue-sample population are not defined precisely; this report
   states its own.
-* **Validation limits**: the simulator is validated against analytic results and invariants (§6) and against the
-  paper's published numbers, but not numerically against the authors' simulator (see the README for the build
-  attempt).
+* **Validation limits**: the simulator is validated against analytic results and invariants (§7), against the
+  paper's published numbers, and against the authors' simulator on one configuration (§6), where HPCC agrees and
+  DCQCN does not fully agree.
 
-## 6. How the simulator itself was validated
+## 6. Cross-check against the authors' simulator
+
+The authors' ns-3.17-based simulator cannot be built with its own waf 1.7 (it needs Python 2, which is not
+installed). `tools/build_official_ns3.py` compiles the ten ns-3 modules its `scratch/third.cc` needs directly with
+clang++ (20 s on 4 cores) and links it; nothing of their code enters this repository. Both simulators then ran the
+same input: the 32-host tree and 23 175 FB_Hadoop flows at 50% load exported by `hpcc-sim fct --export-ns3`, with
+configs written by `tools/crosscheck_ns3.py config` (their `run.py` values, plus the paper's maxStage = 5 and
+W_AI of about 80 B). Flows starting in [1 ms, 4 ms) (4 944 flows) were compared, each scored against the same exact
+ideal FCT:
+
+| slowdown | median: ours / theirs | 95th pct: ours / theirs | 99th pct: ours / theirs |
+|---|---|---|---|
+| HPCC, all flows | 1.05 / 1.12 | 3.50 / 3.64 | 7.05 / 7.55 |
+| HPCC, smallest-size bin | 1.03 / 1.03 | 1.88 / 2.20 | 3.21 / 3.29 |
+| HPCC, largest-size bin | 2.74 / 2.81 | 8.91 / 10.17 | 18.45 / 17.74 |
+| DCQCN, all flows | 1.13 / 1.66 | 7.34 / 10.74 | 14.45 / 20.14 |
+| DCQCN, smallest-size bin | 1.03 / 1.24 | 8.69 / 14.74 | 20.80 / 27.85 |
+
+**HPCC agrees** (medians within 1-7% and tails within about 15% in every bin), which is the strongest evidence here
+that the network model and the HPCC implementation are right: two independent code bases, same answer.
+
+**DCQCN does not fully agree.** In the authors' simulator DCQCN keeps more standing queue: short flows have a
+median slowdown of 1.15-1.36 instead of 1.03 and 1.3-1.8x higher tails; the largest flows agree. Neither run had
+PFC pauses. The difference was not tracked down within the time box. Candidates, none verified: how their NIC model
+re-paces a flow after a rate change (their DCQCN timers assign the rate without re-scheduling the pending send),
+the egress scheduling of the control class in their switch model (which affects how fast CNP-carrying ACKs return),
+and DCQCN start-up details. Consequence for this report: absolute DCQCN numbers here are, if anything, optimistic
+for DCQCN, so the HPCC-versus-DCQCN conclusions are conservative.
+
+## 7. How the simulator itself was validated
 
 * Event queue: time order, FIFO ties, randomised comparison with a reference model.
 * Timing: one packet's end-to-end latency equals the hand-computed value; lone flows of awkward sizes on four
@@ -241,7 +270,7 @@ instead of 1 s.
 * Mutation check: deliberate one-line bugs (HPCC reading the queue length of the wrong hop, PFC off by one byte, ECN
   threshold not scaled, ...) each make the suite fail; see [mutants.md](mutants.md).
 
-## 7. Lessons
+## 8. Lessons
 
 1. **Independent implementations are only comparable once the baseline is pinned down.** The slowdown denominator
    ("FCT when the network only has this flow") hides store-and-forward pipeline effects and partial packets; making
@@ -249,7 +278,10 @@ instead of 1 s.
 2. **Unstated parameters matter.** maxStage alone moves HPCC's long-flow tail by 30%. A reproduction should run the
    plausible values rather than pick one silently.
 3. **The headline results are robust; the fine print is not.** Every qualitative claim reproduced on the first full
-   run, and the one directly comparable number (19.8 us) matched. The discrepancies sit where the paper's setup is
+   run, the one directly comparable number (19.8 us) matched, and HPCC matched the authors' own simulator on
+   identical inputs. The discrepancies sit where the paper's setup is
    underspecified (pause fraction, queue population) or where the paper's evaluation used hardware (testbed DCQCN).
 4. **Controlling in-flight bytes is the key, not only the signal.** The windowed DCQCN and TIMELY never paused, as the
    paper argues; precise INT feedback is what then removes the remaining standing queue.
+5. **A baseline you did not write is the best test.** Running the authors' simulator on exactly the same flows
+   confirmed HPCC and exposed a DCQCN gap that no internal test could have found.

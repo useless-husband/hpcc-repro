@@ -1146,6 +1146,12 @@ impl Sim {
 }
 
 /// See [`Sim::ideal_fct`].
+///
+/// Long flows are handled exactly but quickly: once the pipeline is in steady
+/// state, sending one more full packet shifts every link's "free at" time by
+/// the same amount, and by translation invariance of the recurrence every
+/// following full packet does too; the remaining full packets are then
+/// skipped in one step.
 pub fn ideal_fct(
     size: u64,
     mtu: u32,
@@ -1156,11 +1162,12 @@ pub fn ideal_fct(
 ) -> Time {
     let mut free_f = vec![0 as Time; fwd.len()];
     let mut free_r = vec![0 as Time; rev.len()];
-    let mut sent = 0u64;
+    let mtu = mtu as u64;
+    let mut remaining = size;
+    let mut sent_pkts = 0u64;
+    let mut jumped = false;
     let mut last_ack = 0;
-    while sent < size {
-        let payload = (size - sent).min(mtu as u64);
-        sent += payload;
+    let send = |payload: u64, free_f: &mut Vec<Time>, free_r: &mut Vec<Time>| -> Time {
         let wire = payload + hdr as u64;
         // The sender's first link is busy back-to-back.
         let mut t = free_f[0];
@@ -1176,7 +1183,36 @@ pub fn ideal_fct(
             free_r[j] = end;
             t = end + delay;
         }
-        last_ack = t;
+        t
+    };
+    while remaining > 0 {
+        if !jumped && sent_pkts == 256 && remaining / mtu > 1024 {
+            jumped = true;
+            let (bf, br) = (free_f.clone(), free_r.clone());
+            last_ack = send(mtu, &mut free_f, &mut free_r);
+            remaining -= mtu;
+            sent_pkts += 1;
+            let d = free_f[0] - bf[0];
+            let uniform = free_f
+                .iter()
+                .zip(&bf)
+                .chain(free_r.iter().zip(&br))
+                .all(|(a, b)| a - b == d);
+            if uniform {
+                // Keep one full packet (and the partial tail) for the normal path.
+                let skip = remaining / mtu - 1;
+                for v in free_f.iter_mut().chain(free_r.iter_mut()) {
+                    *v += skip * d;
+                }
+                remaining -= skip * mtu;
+                sent_pkts += skip;
+            }
+            continue;
+        }
+        let payload = remaining.min(mtu);
+        last_ack = send(payload, &mut free_f, &mut free_r);
+        remaining -= payload;
+        sent_pkts += 1;
     }
     last_ack
 }

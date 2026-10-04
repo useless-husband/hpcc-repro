@@ -29,7 +29,7 @@ def matrix(which):
     topo = [] if full else ["--small"]
     # Figure 11: FB_Hadoop, 30% load + 60-to-1 incast, and 50% load.
     win = ["--warmup-ms", "1", "--measure-ms", "5", "--tail-ms", "20"] if full else \
-          ["--warmup-ms", "1", "--measure-ms", "4", "--tail-ms", "12"]
+          ["--warmup-ms", "1", "--measure-ms", "10", "--tail-ms", "15"]
     ccs = FIG11_CCS if full else ["hpcc", "dcqcn", "dcqcn+win", "dctcp"]
     for tag, load, incast in [("30inc", "0.3", True), ("50", "0.5", False)]:
         for cc in ccs:
@@ -39,7 +39,7 @@ def matrix(which):
             runs.append((f"fig11-fb{tag}-{cc}", argv))
     # Figure 10's workload (WebSearch at 30% and 50%) in simulation.
     wwin = ["--warmup-ms", "1", "--measure-ms", "10", "--tail-ms", "25"] if full else \
-           ["--warmup-ms", "1", "--measure-ms", "6", "--tail-ms", "15"]
+           ["--warmup-ms", "1", "--measure-ms", "20", "--tail-ms", "20"]
     for load in (["0.3", "0.5"] if full else ["0.5"]):
         for cc in (FIG10_CCS if full else ["hpcc", "dcqcn"]):
             argv = ["fct", "--cc", cc, "--workload", "websearch", "--load", load] + wwin + topo

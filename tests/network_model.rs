@@ -88,6 +88,19 @@ fn ideal_matches_closed_form_for_uniform_path() {
 }
 
 #[test]
+fn ideal_steady_state_jump_is_exact_for_huge_flows() {
+    // 10^9 full packets (1 TB): the recurrence skips the steady state, and
+    // must still equal the closed form exactly.
+    let h = 6;
+    let path = vec![(gbps(100), US); h];
+    let n = 1_000_000_000u64;
+    let ser = ser_time(1048, gbps(100));
+    let expect =
+        n * ser + (h as u64 - 1) * ser + h as u64 * US + h as u64 * (ser_time(60, gbps(100)) + US);
+    assert_eq!(ideal_fct(n * 1000, 1000, 48, 60, &path, &path), expect);
+}
+
+#[test]
 fn single_long_flow_reaches_line_rate_for_every_cc() {
     // 10 MB alone on a 100G switch. Non-HPCC schemes have no reason to slow
     // down; HPCC keeps 5% headroom (eta) and pays 42 B of INT per packet.

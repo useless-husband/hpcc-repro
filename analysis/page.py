@@ -139,13 +139,17 @@ def section_fig11(n, figrel, label):
         "slowdown than DCQCN, TIMELY, their windowed variants and DCTCP, at 30% load + incast and at 50% load. Long "
         "flows are slower with HPCC (it leaves 5% headroom and pays INT bytes); the paper estimates 1.24x at 50% load.",
         " ".join(s) + long50,
-        "HPCC is the best scheme for every short-flow bin in both cases; plain DCQCN and TIMELY are worst; adding a "
-        "window helps both; DCTCP is between the windowed schemes and HPCC; HPCC is the slowest scheme for the "
-        "largest flows.",
-        "Absolute slowdowns are not comparable digit by digit with the paper (its y-axis is read off a log plot). "
-        "The ordering of DCTCP versus the windowed DCQCN/TIMELY varies by bin.",
-        "Shorter measurement windows (5 ms of arrivals instead of the paper's longer runs) and modelling choices "
-        "listed in docs/DESIGN.md (ACKs at high priority, no NIC processing delay).",
+        "HPCC has the lowest 95th-percentile slowdown in every bin up to 120 KB in both cases; plain DCQCN and "
+        "TIMELY are worst (very much so with incast); adding a window helps both; DCTCP sits between the windowed "
+        "schemes and HPCC, as the paper explains (its window limits in-flight bytes). At 50% load HPCC is the "
+        "slowest scheme for the largest flows.",
+        "The long-flow penalty at 50% load is 1.07x at the median but 1.52x at the 95th percentile (largest bin, "
+        "versus the mean of the other schemes), against the paper's analytical 1.24x. With maxStage = 0 (the "
+        "default in the authors' run.py; the paper's text says 5) the 95th-percentile gap shrinks to 1.15x, see "
+        "the sensitivity table at the end of the page.",
+        "With maxStage = 5 a long flow that starts on a busy link waits six RTTs between multiplicative increases "
+        "and grows by only W_AI = 80 B per RTT meanwhile, so it reclaims bandwidth slowly; the absolute slowdowns "
+        "also depend on the 5 ms measurement windows and on modelling choices listed in docs/DESIGN.md.",
         "matches"))
     out.append("<h3>95th-percentile slowdown per bin (table view)</h3>")
     for case, title in [("fb30inc", "30% load + incast"), ("fb50", "50% load")]:
@@ -187,9 +191,10 @@ def section_fig11(n, figrel, label):
         "Pauses happen only for the window-less rate-based schemes; every windowed scheme and HPCC never trigger "
         "PFC; HPCC's tail RTT is within a few us of the paper's 19.8 us; DCQCN/TIMELY tail RTTs with incast are in "
         "the millisecond range.",
-        "The paused fraction of port-time is smaller than the paper's bars. The paper does not define its "
-        "denominator (which ports, which period); this page averages over every host and switch port.",
-        "Different definition of the pause metric, and shorter runs. The qualitative claim (only window-less schemes "
+        "The paper plots the paused fraction on a 0-20% axis; the 1-2.5% here is at the low end. DCTCP's tail RTT "
+        "is 1.85x HPCC's, slightly short of the paper's 'more than 2 times'.",
+        "The paper does not define the denominator of its pause fraction (which ports, which period); this page "
+        "averages over every host and switch port after warm-up. The qualitative claim (only window-less schemes "
         "pause) does not depend on the definition.",
         "matches"))
     out.append(table(["case", "algorithm", "paused % (all ports)", "paused % (hosts)", "pause frames",
@@ -228,10 +233,12 @@ def section_fig10(n, figrel):
         " ".join(txt),
         "Similar medians; HPCC much better in the tail for short flows; queues near zero with HPCC and in the MB "
         "range for DCQCN; median queue 0 for both.",
-        "The DCQCN tail for tiny flows is less extreme than the testbed's 53.9, and HPCC's queue percentiles over "
-        "all switch ports are lower than the testbed's 19.7/22.9 KB.",
-        "This is a simulation of the paper's 100G FatTree, not the 25G testbed; queue samples here include every "
-        "switch port (most are idle), whereas the testbed measured a handful of loaded ports.",
+        "The DCQCN tail for tiny flows is less extreme than the testbed's 53.9. HPCC's 95th-percentile queue is "
+        "lower than the testbed's 19.7 KB but its 99th percentile is higher than 22.9 KB.",
+        "This is a simulation of the paper's 100G FatTree, not the 25G testbed: the bandwidth-delay product is about "
+        "6x larger (162 KB), so line-rate starts of new flows collide in larger bursts (in BDP units HPCC's 99th "
+        "percentile is lower than the testbed's); queue samples here include every switch port, most of them idle; "
+        "and the testbed's DCQCN ran on real NICs.",
         "partly"))
     out.append(table(["load", "algorithm", "p99 slowdown <3KB", "flows <3KB", "queue p50", "queue p95", "queue p99",
                       "queue p99.9", "% samples non-empty"], rows, numeric_from=2))
@@ -335,8 +342,11 @@ def section_fig9(n, figrel):
             "around its ECN threshold and mice latency is consistently above 35 us.",
             f"Median mouse completion time: HPCC {h.get('latency_p50_us', 0):.1f} us, DCQCN {d.get('latency_p50_us', 0):.1f} us; "
             f"median queue {h.get('queue_p50_kb', 0):.1f} KB vs {d.get('queue_p50_kb', 0):.0f} KB.",
-            "Mice at base RTT with HPCC; tens of us with DCQCN because of the standing queue.",
-            "Base RTT of this single-switch topology (~4.9 us) is not the testbed's 5.4 us.", "Topology.", "matches"))
+            "Mice at the base RTT with HPCC and an empty median queue; much higher and more variable latency with DCQCN.",
+            "DCQCN's median mouse latency is below the paper's 'consistently higher than 35 us': its queue "
+            "saw-tooths between 0 and ~180 KB instead of sitting at the 100 KB marking threshold.",
+            "The timer-only vendor DCQCN model used here (from the authors' simulator) is not the testbed NIC firmware; "
+            "the base RTT here is ~4.9 us, not 5.4 us.", "partly"))
     if "fairshare" in F:
         out.append(fig(f"{figrel}/fig9_fairshare.svg", "fair share", "Four flows join one by one and then leave."))
         h, d = F["fairshare"].get("hpcc", {}), F["fairshare"].get("dcqcn", {})
@@ -348,14 +358,15 @@ def section_fig9(n, figrel):
     return "\n".join(out)
 
 
-def render_page(n, figrel, label):
+def render_page(n, figrel, label, docrel="."):
     FULL["on"] = label == "full"
     title = "HPCC reproduction results"
     scope = ("the paper's 320-host FatTree (full set, <code>make repro</code>)" if label == "full"
              else "a scaled-down 32-host FatTree with short windows (<code>make quick</code>); the full-scale results are in docs/results.html")
     body = [f"<h1>{title}</h1>",
             f'<p class="sub">Independent re-implementation and simulation study of Li et al., "HPCC: High Precision '
-            f'Congestion Control", SIGCOMM 2019. This page was generated from {scope}. Discussion: docs/report.md.</p>',
+            f'Congestion Control", SIGCOMM 2019. This page was generated from {scope}. Discussion: '
+            f'<a href="{esc(docrel)}/report.md">report.md</a>; model and choices: <a href="{esc(docrel)}/DESIGN.md">DESIGN.md</a>.</p>',
             '<p>Contents: <a href="#fig11">Figure 11</a> &middot; <a href="#fig10">Figure 10</a> &middot; '
             '<a href="#fig13">Figure 13</a> &middot; <a href="#fig14">Figure 14</a> &middot; <a href="#fig9">Figure 9</a> '
             '&middot; <a href="#extras">seeds and sensitivity</a></p>']
