@@ -1,0 +1,7 @@
+/target/
+/results/
+/.venv/
+__pycache__/
+*.pyc
+.DS_Store
+/docs/results-data/*.tmp
